@@ -1,1 +1,2 @@
-# Expandable-Toolbox
+# Expandable-Toolbox（可扩展工具箱）
+本项目是个人练手项目，写这个项目主要是为了整合一下自己写的一些脚本和第三方开源工具，方便使用。
