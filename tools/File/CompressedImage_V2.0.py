@@ -3,6 +3,7 @@
 from PIL import Image
 import os
 
+
 def compress_image(input_image_path, quality=85):
     """
     压缩图像并保存。
@@ -26,6 +27,7 @@ def compress_image(input_image_path, quality=85):
     # 保存图像，JPEG格式，设置质量
     img.save(output_image_path, "JPEG", optimize=True, quality=quality)
 
+
 if __name__ == "__main__":
     input_image = input("请输入图像文件的路径：")  # 用户输入图像路径
     quality = int(input("请输入压缩质量（1-95）："))  # 用户输入压缩质量
@@ -36,4 +38,3 @@ if __name__ == "__main__":
     else:
         compress_image(input_image, quality)
         print("图像压缩完成！")
-

@@ -2,6 +2,7 @@
 # 删除空文件夹
 import os
 
+
 def is_empty_dir(path):
     """检查目录是否为空"""
     try:
@@ -10,6 +11,7 @@ def is_empty_dir(path):
         return not os.listdir(path)
     except OSError:
         return False
+
 
 def remove_empty_dirs(path):
     """
@@ -32,6 +34,8 @@ def remove_empty_dirs(path):
                 if remove_empty_dirs(item_path):
                     return True
     return False
+
+
 def remove_empty_dirs_in_directory(directory):
     """在指定目录下使用单线程删除所有空文件夹"""
     # 获取目录下的所有子目录
@@ -45,6 +49,7 @@ def remove_empty_dirs_in_directory(directory):
 
     if not any_empty_dir_removed:
         print("无空文件夹")
+
 
 if __name__ == "__main__":
     # 从控制台获取要处理的目录

@@ -5,6 +5,7 @@ from PIL import Image
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+
 def change_image(directory_path, size, cover=0):
     # 遍历目录中的所有文件
     for filename in os.listdir(directory_path):
@@ -21,6 +22,7 @@ def change_image(directory_path, size, cover=0):
             with Image.open(input_image_path) as image:
                 resized_image = image.resize(size, Image.LANCZOS)
                 resized_image.save(output_image_path)
+
 
 # GUI界面函数
 def on_process_button_click():
@@ -41,12 +43,14 @@ def on_process_button_click():
     change_image(image_path, new_size, cover)
     messagebox.showinfo("完成", "图片已成功调整尺寸")
 
+
 def on_browse_button_click():
     global image_path_entry
     image_path_entry.delete(0, tk.END)  # 清空文本框内容
     selected_directory = filedialog.askdirectory()  # 打开文件选择器
     if selected_directory:  # 如果选择了目录，则将其路径填入文本框
         image_path_entry.insert(tk.END, selected_directory)
+
 
 # 创建主窗口
 root = tk.Tk()

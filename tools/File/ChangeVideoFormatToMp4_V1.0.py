@@ -3,6 +3,7 @@
 import os
 from moviepy.editor import VideoFileClip
 
+
 def convert_video(input_video_path):
     # 确保输入的视频文件路径不为空
     if not input_video_path:
@@ -24,9 +25,10 @@ def convert_video(input_video_path):
     video.reader.close()
     video.audio.reader.close_proc()
 
+
 if __name__ == '__main__':
     # 输入视频文件路径
-    input_video = r"E:\茶啊二中1-1.ts"
+    input_video = r"E:\test\1.flv"
     convert_video(input_video)
     print("视频格式转换完成！")
 
