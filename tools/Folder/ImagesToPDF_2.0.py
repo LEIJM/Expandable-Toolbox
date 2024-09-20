@@ -37,6 +37,7 @@ def images_to_pdf(image_folder):
     pdf_document.close()
     print(f"\nPDF saved to: {output_pdf}")
 
+
 if __name__ == '__main__':
     # 示例用法
     image_folder = input("请输入图片文件夹路径:\n")

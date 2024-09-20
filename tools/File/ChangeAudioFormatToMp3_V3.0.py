@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox
 import os
 import ffmpeg
 
+
 def convert_audio(input_audio_path):
     try:
         # 获取输入音频文件的目录和文件名
@@ -28,6 +29,7 @@ def convert_audio(input_audio_path):
         # 更新状态信息为错误信息
         status_label.config(text=f"发生错误: {e}")
 
+
 def browse_file():
     # 打开文件选择对话框
     filepath = filedialog.askopenfilename()
@@ -35,6 +37,7 @@ def browse_file():
         # 清空文本框并插入新路径
         entry.delete(0, tk.END)
         entry.insert(0, filepath)
+
 
 def process_audio():
     # 获取文本框中的路径
@@ -44,6 +47,7 @@ def process_audio():
         return
     # 调用转换函数
     convert_audio(input_audio_path)
+
 
 # 创建主窗口
 root = tk.Tk()

@@ -5,6 +5,7 @@ from PIL import Image
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+
 # 调整图像分辨率
 def change_image(input_image_path, size):
     input_dir, input_filename = os.path.split(input_image_path)
@@ -34,12 +35,14 @@ def on_process_button_click():
     change_image(image_path, new_size)
     messagebox.showinfo("完成", "图片已成功调整尺寸")
 
+
 def on_browse_button_click():
     global image_path_entry
     image_path_entry.delete(0, tk.END)  # 清空文本框内容
     selected_file = filedialog.askopenfilename()  # 打开文件选择器，选择文件而不是目录
     if selected_file:  # 如果选择了文件，则将其路径填入文本框
         image_path_entry.insert(tk.END, selected_file)
+
 
 # 创建主窗口
 root = tk.Tk()

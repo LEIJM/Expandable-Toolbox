@@ -4,6 +4,7 @@ import os
 import fitz  # PyMuPDF 库
 import threading
 
+
 class ImageToPdfGUI:
     def __init__(self, master):
         self.master = master
@@ -91,10 +92,12 @@ class ImageToPdfGUI:
         self.master.after(0, self.progress_bar.config, {"value": value})
         self.master.after(0, self.status_bar.config, {"text": message})
 
+
 def main():
     root = tk.Tk()
     gui = ImageToPdfGUI(root)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

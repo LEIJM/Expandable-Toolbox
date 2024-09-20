@@ -3,6 +3,7 @@
 import os
 import ffmpeg
 
+
 def convert_audio(input_audio_path):
     # 确保输入的音频文件路径不为空
     if not input_audio_path:
@@ -24,6 +25,7 @@ def convert_audio(input_audio_path):
     )
 
     print("音频格式转换完成！")
+
 
 if __name__ == '__main__':
     # 输入音频文件路径

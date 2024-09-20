@@ -3,6 +3,7 @@
 from moviepy.editor import VideoFileClip
 import os
 
+
 def adjust_video_speed_and_save(video_path, speed):
     # 确保输入的视频文件路径不为空
     if not video_path:
@@ -24,6 +25,7 @@ def adjust_video_speed_and_save(video_path, speed):
 
     # 写入新文件
     adjusted_clip.write_videofile(output_path)
+
 
 if __name__ == '__main__':
     # 视频文件的路径

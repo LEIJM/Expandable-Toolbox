@@ -5,6 +5,7 @@ from tkinter import filedialog
 from moviepy.editor import VideoFileClip
 import os
 
+
 def adjust_video_speed_and_save(video_path, speed):
     if not video_path:
         raise ValueError("输入的视频文件路径不能为空。")
@@ -18,17 +19,20 @@ def adjust_video_speed_and_save(video_path, speed):
     adjusted_clip.write_videofile(output_path)
     return f"视频播放速率调整完成，输出文件位于：{output_path}"
 
+
 def browse_file():
     file_path = filedialog.askopenfilename()
     if file_path:
         file_entry.delete(0, tk.END)
         file_entry.insert(0, file_path)
 
+
 def process_video():
     video_path = file_entry.get()
     speed = float(speed_entry.get())
     result = adjust_video_speed_and_save(video_path, speed)
     result_label.config(text=result)
+
 
 # 创建主窗口
 root = tk.Tk()

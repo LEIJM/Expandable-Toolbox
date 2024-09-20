@@ -3,6 +3,7 @@
 import os
 from PIL import Image
 
+
 def change_image(input_image_path, size):
     # 获取输入图像的目录和文件名
     input_dir, input_filename = os.path.split(input_image_path)

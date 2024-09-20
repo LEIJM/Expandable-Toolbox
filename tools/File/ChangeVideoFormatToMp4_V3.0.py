@@ -30,6 +30,7 @@ def convert_video(input_video_path):
     # 更新状态信息
     status_label.config(text="视频格式转换完成！")
 
+
 def browse_file():
     # 打开文件选择对话框
     filepath = filedialog.askopenfilename()
@@ -38,12 +39,14 @@ def browse_file():
         file_entry.delete(0, tk.END)
         file_entry.insert(0, filepath)
 
+
 def process_video():
     input_video_path = file_entry.get()
     if not input_video_path:
         messagebox.showwarning("警告", "请输入视频文件路径或选择文件。")
         return
     convert_video(input_video_path)
+
 
 # 创建主窗口
 root = tk.Tk()

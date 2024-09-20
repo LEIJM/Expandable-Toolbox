@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter.ttk import Progressbar, Style
 
+
 def images_to_pdf(image_folder, progress_var, progress_label, progress_bar, status_label, root):
     try:
         folder_name = os.path.basename(os.path.normpath(image_folder))
@@ -47,11 +48,13 @@ def images_to_pdf(image_folder, progress_var, progress_label, progress_bar, stat
         status_label.config(text=f"错误: {str(e)}", fg="red")
         status_label.pack(fill=tk.X, expand=True)
 
+
 def browse_folder(entry):
     folder_selected = filedialog.askdirectory()
     if folder_selected:
         entry.delete(0, tk.END)
         entry.insert(0, folder_selected)
+
 
 def start_processing(entry, progress_var, progress_label, progress_bar, status_label, root):
     image_folder = entry.get()
@@ -66,6 +69,7 @@ def start_processing(entry, progress_var, progress_label, progress_bar, status_l
     else:
         status_label.config(text="错误: 请输入有效的文件夹路径", fg="red")
         status_label.pack(fill=tk.X, expand=True)
+
 
 def create_gui():
     root = tk.Tk()
@@ -104,6 +108,7 @@ def create_gui():
     status_label = tk.Label(frame_bottom, text="", fg="green", anchor="w")
 
     root.mainloop()
+
 
 if __name__ == '__main__':
     create_gui()

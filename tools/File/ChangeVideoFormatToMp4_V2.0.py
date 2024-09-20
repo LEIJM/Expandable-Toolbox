@@ -3,6 +3,7 @@
 import os
 from moviepy.editor import VideoFileClip
 
+
 def convert_video(input_video_path):
     # 确保输入的视频文件路径不为空
     if not input_video_path:
@@ -23,6 +24,7 @@ def convert_video(input_video_path):
     # 释放资源
     video.reader.close()
     video.audio.reader.close_proc()
+
 
 if __name__ == '__main__':
     # 输入视频文件路径

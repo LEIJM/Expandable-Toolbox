@@ -2,6 +2,7 @@ import os
 import fitz  # PyMuPDF 库
 from tqdm import tqdm  # 用于显示进度条
 
+
 def convert_images_to_pdf(image_dir):
     # 创建一个新的 PDF 文档
     pdf_doc = fitz.open()
