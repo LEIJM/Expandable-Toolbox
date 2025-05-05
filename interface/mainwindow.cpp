@@ -55,6 +55,24 @@ MainWindow::MainWindow(QWidget *parent)
     connect(directoryArea, &DirectoryArea::folderSelected, functionArea, &FunctionArea::showShortcuts);
 
     // 创建状态栏
+<<<<<<< HEAD
+    QStatusBar* bar = statusBar();
+    bar->setSizeGripEnabled(false); // 禁用右下角的大小控制点
+    
+    // 创建永久消息区域（左侧）
+    welcomeLabel = new QLabel("欢迎使用工具箱");
+    welcomeLabel->setStyleSheet("padding: 2px 8px; color: #1976d2; font-weight: bold; text-decoration: underline; cursor: pointer;");
+    welcomeLabel->setToolTip("点击查看关于信息");
+    bar->addPermanentWidget(welcomeLabel, 0); // 0表示不伸展
+    
+    // 创建临时消息区域（右侧）
+    QLabel* messageLabel = new QLabel("就绪");
+    messageLabel->setStyleSheet("padding: 2px 8px; color: #555555;");
+    bar->addWidget(messageLabel, 1); // 1表示伸展填充可用空间
+    
+    // 将状态栏传递给功能区
+    functionArea->setStatusBar(bar);
+=======
     statusBar()->setSizeGripEnabled(false); // 禁用右下角的大小控制点
     
     // 添加欢迎信息到状态栏
@@ -62,6 +80,7 @@ MainWindow::MainWindow(QWidget *parent)
     welcomeLabel->setStyleSheet("padding: 2px 8px; color: #555555; text-decoration: underline; cursor: pointer;");
     welcomeLabel->setToolTip("点击查看关于信息");
     statusBar()->addWidget(welcomeLabel);
+>>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     
     // 连接欢迎标签的点击事件
     connect(welcomeLabel, &QLabel::linkActivated, this, &MainWindow::showAboutDialog);
@@ -170,6 +189,8 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         return true;
     }
     return QMainWindow::eventFilter(obj, event);
+<<<<<<< HEAD
+=======
 }
 
 int main(int argc, char *argv[]) {
@@ -182,4 +203,5 @@ int main(int argc, char *argv[]) {
     window.show();
 
     return app.exec();
+>>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 }

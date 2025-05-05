@@ -64,7 +64,51 @@ Expandable Toolbox 是一个可扩展的工具箱应用程序，允许用户组�
 
 ## 🛠️ 开发者信息
 
+<<<<<<< HEAD
+### 技术栈
 
+- **开发语言**：C++17
+- **GUI框架**：Qt 6.7.2
+- **构建系统**：CMake 3.16+
+- **编译器**：MinGW 64-bit
+- **开发环境**：Qt Creator 14.0.0
+
+### 项目结构
+
+```
+Expandable-Toolbox/
+├── interface/              # 界面相关代码
+│   ├── DirectoryArea.cpp   # 目录区域组件
+│   ├── DirectoryArea.h
+│   ├── FunctionArea.cpp    # 功能区域组件
+│   ├── FunctionArea.h
+│   ├── mainwindow.cpp      # 主窗口
+│   ├── mainwindow.h
+│   ├── main.cpp            # 程序入口
+│   ├── CMakeLists.txt      # 构建配置
+│   └── resource/           # 资源文件
+└── tools/                  # 工具存放目录
+```
+
+### 界面组件
+
+- **DirectoryArea**：左侧目录区域，负责显示和管理工具分类
+- **FunctionArea**：右侧功能区域，负责显示和管理当前分类下的工具
+- **MainWindow**：主窗口，整合目录区和功能区，提供状态栏和关于对话框
+
+### 多语言支持
+
+项目支持多语言本地化，目前已添加中文翻译支持（Expandable-Toolbox_zh_CN.ts）。
+
+### 构建说明
+
+1. 确保已安装 Qt 6.7.2 及以上版本和 CMake 3.16+
+2. 克隆仓库：`git clone https://github.com/LEIJM/Expandable-Toolbox.git`
+3. 使用 Qt Creator 打开 `interface/CMakeLists.txt` 文件
+4. 配置构建环境并编译
+=======
+
+>>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 
 ## 📝 许可证
 

@@ -15,6 +15,10 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets LinguistTools)
 set(TS_FILES Expandable-Toolbox_zh_CN.ts)
 
 set(PROJECT_SOURCES
+<<<<<<< HEAD
+        main.cpp
+=======
+>>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
         DirectoryArea.cpp
         DirectoryArea.h
         FunctionArea.cpp
