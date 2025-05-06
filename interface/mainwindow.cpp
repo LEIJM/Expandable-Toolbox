@@ -160,7 +160,7 @@ void MainWindow::showAboutDialog() {
     
     // 应用描述 - 使用更丰富的HTML格式
     QLabel *descriptionLabel = new QLabel(
-        "<p style='margin-top:0;'>Expandable Toolbox是一个可扩展的工具箱应用程序，允许用户组织和快速访问各种工具。</p>"
+        "<p style='margin-top:0;'>Expandable Toolbox是一个可扩展的工具箱应用程序，允许用户和组织快速访问各种工具。</p>"
         "<p style='margin-bottom:5px;'><b>主要功能：</b></p>"
         "<ul style='margin-top:0;'>"
         "<li>工具分类管理 - 按类别整理您的工具</li>"

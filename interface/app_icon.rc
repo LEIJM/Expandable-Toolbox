@@ -1,1 +1,4 @@
 IDI_ICON1 ICON DISCARDABLE "toolbox.ico"
+
+// 添加应用程序清单以启用管理员权限
+1 24 "app_manifest.xml"
