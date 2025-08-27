@@ -17,7 +17,6 @@
 #include <QPushButton>
 #include <QDialog>
 #include <QLineEdit>
-<<<<<<< HEAD
 #include <QTextEdit>
 #include <QIcon>
 
@@ -34,11 +33,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     searchTimer->setSingleShot(true);
     searchTimer->setInterval(300); // 300毫秒延迟
     connect(searchTimer, &QTimer::timeout, this, &FunctionArea::performSearch);
-=======
-
-FunctionArea::FunctionArea(QWidget *parent)
-        : QWidget(parent), currentFolderName("") {
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     // 加载支持的文件后缀
     loadFileExtensions();
     // 创建标题标签
@@ -46,7 +40,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet("font-weight: bold; font-size: 12pt; padding: 8px; color: #2c3e50; background-color: #ecf0f1; border-bottom: 1px solid #bdc3c7;");
     
-<<<<<<< HEAD
     // 创建搜索框
     QHBoxLayout *searchLayout = new QHBoxLayout();
     searchLayout->setContentsMargins(8, 8, 8, 8);
@@ -91,8 +84,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     });
     connect(clearButton, &QPushButton::clicked, this, &FunctionArea::clearSearch);
     
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     // 创建快捷方式列表
     shortcuts = new QListWidget(this);
     shortcuts->setStyleSheet(
@@ -119,7 +110,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     // 设置列表项高度
     shortcuts->setStyleSheet(shortcuts->styleSheet() + "QListWidget::item { height: 36px; }");
     
-<<<<<<< HEAD
     // 启用拖放功能
     shortcuts->setDragEnabled(true);
     shortcuts->setAcceptDrops(true);
@@ -129,8 +119,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     // 连接拖放完成信号
     connect(shortcuts->model(), &QAbstractItemModel::rowsMoved, this, &FunctionArea::onShortcutsReordered);
     
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     // 连接双击信号到槽函数
     connect(shortcuts, &QListWidget::itemDoubleClicked, this, &FunctionArea::onShortcutDoubleClicked);
     
@@ -148,10 +136,7 @@ FunctionArea::FunctionArea(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(titleLabel);
-<<<<<<< HEAD
     layout->addLayout(searchLayout);
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     layout->addWidget(shortcuts);
     layout->addWidget(hintLabel);
     setLayout(layout);
@@ -205,7 +190,6 @@ QStringList FunctionArea::getFileFilters() const {
     return filters;
 }
 
-<<<<<<< HEAD
 // 析构函数，清理资源
 FunctionArea::~FunctionArea() {
     // 停止定时器
@@ -512,27 +496,12 @@ void FunctionArea::clearSearch() {
 
 // 扫描文件夹获取快捷方式
 void FunctionArea::scanFolderForShortcuts(const QString &folderName) {
-=======
-void FunctionArea::showShortcuts(const QString &folderName) {
-    // 保存当前文件夹名称
-    currentFolderName = folderName;
-    
-    // 清空当前快捷方式列表
-    shortcuts->clear();
-    
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     // 设置鼠标等待光标
     QApplication::setOverrideCursor(Qt::WaitCursor);
     
     // 读取指定文件夹及其子文件夹下的支持的文件类型
     QDir toolsDir("tools/" + folderName);
     
-<<<<<<< HEAD
-=======
-    // 创建文件图标提供器
-    QFileIconProvider iconProvider;
-    
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     // 首先扫描所有文件夹中的main.cfg文件
     QMap<QString, QStringList> mainConfigFiles; // 文件夹路径 -> 主要可执行文件路径列表
     QSet<QString> foldersWithMainCfg; // 存储包含main.cfg的文件夹及其子文件夹路径
@@ -589,214 +558,6 @@ void FunctionArea::showShortcuts(const QString &folderName) {
                 skipDueToParentFolder = true;
                 break;
             }
-<<<<<<< HEAD
-=======
-        }
-        
-        // 如果是子文件夹中的文件，跳过
-        if (skipDueToParentFolder) {
-            continue;
-        }
-        
-        // 检查文件是否是支持的类型
-        if (fileInfo.isFile() && supportedExtensions.contains(fileInfo.suffix().toLower())) {
-            // 检查该文件所在目录是否有main.cfg配置
-            if (mainConfigFiles.contains(dirPath)) {
-                // 如果有main.cfg，只显示指定的文件列表中的文件
-                if (!mainConfigFiles[dirPath].contains(fileInfo.absoluteFilePath())) {
-                    continue; // 跳过非指定文件
-                }
-            }
-            
-            // 创建列表项
-            QListWidgetItem *item = new QListWidgetItem(shortcuts);
-            
-            // 检查是否有重命名配置
-            QString displayName = fileInfo.completeBaseName();
-            QString renameConfigPath = "tools/" + folderName + "/shortcuts/" + fileInfo.fileName() + ".rename";
-            QFile renameFile(renameConfigPath);
-            if (renameFile.exists() && renameFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                QTextStream in(&renameFile);
-                QString customName = in.readAll().trimmed();
-                if (!customName.isEmpty()) {
-                    displayName = customName;
-                }
-                renameFile.close();
-            }
-            
-            // 设置文本和工具提示
-            item->setText(displayName);
-            item->setToolTip(fileInfo.absoluteFilePath());
-            
-            // 设置图标
-            item->setIcon(iconProvider.icon(fileInfo));
-            
-            // 存储文件路径
-            item->setData(Qt::UserRole, fileInfo.absoluteFilePath());
-            
-            // 设置交替背景色
-            if (count % 2 == 0) {
-                item->setBackground(QColor(252, 252, 252));
-            } else {
-                item->setBackground(QColor(248, 248, 248));
-            }
-            
-            count++;
-        }
-    }
-    
-    // 恢复鼠标光标
-    QApplication::restoreOverrideCursor();
-}
-
-void FunctionArea::onContextMenuRequested(const QPoint &pos) {
-    QListWidgetItem *item = shortcuts->itemAt(pos);
-    
-    // 创建右键菜单
-    QMenu menu(this);
-    
-    if (item) {
-        // 选中当前项
-        shortcuts->setCurrentItem(item);
-        
-        // 添加重命名选项
-        QAction *renameAction = menu.addAction("重命名工具");
-        connect(renameAction, &QAction::triggered, this, &FunctionArea::onRenameShortcut);
-        
-        menu.addSeparator();
-    }
-    
-    // 添加管理文件后缀选项
-    QAction *manageExtensionsAction = menu.addAction("管理支持的文件类型");
-    connect(manageExtensionsAction, &QAction::triggered, this, &FunctionArea::onManageFileExtensions);
-    
-    // 显示菜单
-    menu.exec(shortcuts->mapToGlobal(pos));
-}
-
-void FunctionArea::onRenameShortcut() {
-    QListWidgetItem *item = getSelectedItem();
-    if (!item) {
-        return;
-    }
-    
-    // 获取当前名称和文件路径
-    QString currentName = item->text();
-    QString filePath = item->data(Qt::UserRole).toString();
-    QFileInfo fileInfo(filePath);
-    
-    // 创建自定义对话框以便修改按钮文本
-    QDialog dialog(this);
-    dialog.setWindowTitle("重命名工具");
-    
-    // 创建输入框和标签
-    QLineEdit *lineEdit = new QLineEdit(&dialog);
-    lineEdit->setText(currentName);
-    QLabel *label = new QLabel("请输入新的工具名称:", &dialog);
-    
-    // 创建按钮
-    QPushButton *saveButton = new QPushButton("保存", &dialog);
-    QPushButton *cancelButton = new QPushButton("取消", &dialog);
-    
-    // 设置按钮角色
-    saveButton->setDefault(true);
-    dialog.connect(saveButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    dialog.connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-    
-    // 创建布局
-    QVBoxLayout *mainLayout = new QVBoxLayout;
-    mainLayout->addWidget(label);
-    mainLayout->addWidget(lineEdit);
-    
-    QHBoxLayout *buttonLayout = new QHBoxLayout;
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(saveButton);
-    buttonLayout->addWidget(cancelButton);
-    
-    mainLayout->addLayout(buttonLayout);
-    dialog.setLayout(mainLayout);
-    
-    // 显示对话框
-    bool ok = (dialog.exec() == QDialog::Accepted);
-    QString newName = lineEdit->text();
-    
-    if (ok && !newName.isEmpty() && newName != currentName) {
-        // 创建快捷方式文件（.lnk或.desktop）来实现重命名
-        // 在Windows上，我们可以创建一个.lnk文件
-        QString shortcutDir = "tools/" + currentFolderName + "/shortcuts";
-        QDir dir;
-        if (!dir.exists(shortcutDir)) {
-            dir.mkpath(shortcutDir);
-        }
-        
-        // 创建配置文件来存储重命名信息
-        QString configPath = shortcutDir + "/" + fileInfo.fileName() + ".rename";
-        QFile configFile(configPath);
-        if (configFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&configFile);
-            out << newName;
-            configFile.close();
-            
-            // 更新列表项
-            item->setText(newName);
-        } else {
-            QMessageBox::warning(this, "重命名工具", "无法保存重命名信息。");
-        }
-    }
-}
-
-void FunctionArea::onManageFileExtensions() {
-    // 创建自定义对话框以便修改按钮文本
-    QDialog dialog(this);
-    dialog.setWindowTitle("管理支持的文件类型");
-    
-    // 创建输入框和标签
-    QLineEdit *lineEdit = new QLineEdit(&dialog);
-    lineEdit->setText(supportedExtensions.join(";"));
-    QLabel *label = new QLabel("请输入支持的文件后缀，用分号(;)分隔：", &dialog);
-    
-    // 创建按钮
-    QPushButton *saveButton = new QPushButton("保存", &dialog);
-    QPushButton *cancelButton = new QPushButton("取消", &dialog);
-    
-    // 设置按钮角色
-    saveButton->setDefault(true);
-    dialog.connect(saveButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    dialog.connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-    
-    // 创建布局
-    QVBoxLayout *mainLayout = new QVBoxLayout;
-    mainLayout->addWidget(label);
-    mainLayout->addWidget(lineEdit);
-    
-    QHBoxLayout *buttonLayout = new QHBoxLayout;
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(saveButton);
-    buttonLayout->addWidget(cancelButton);
-    
-    mainLayout->addLayout(buttonLayout);
-    dialog.setLayout(mainLayout);
-    
-    // 显示对话框
-    bool ok = (dialog.exec() == QDialog::Accepted);
-    QString extensionsStr = lineEdit->text();
-    
-    if (ok && !extensionsStr.isEmpty()) {
-        // 解析输入的后缀
-        QStringList newExtensions = extensionsStr.split(";", Qt::SkipEmptyParts);
-        
-        // 移除空白字符并转为小写
-        for (int i = 0; i < newExtensions.size(); ++i) {
-            newExtensions[i] = newExtensions[i].trimmed().toLower();
-        }
-        
-        // 保存新的后缀列表
-        saveFileExtensions(newExtensions);
-        
-        // 刷新当前显示的快捷方式
-        if (!currentFolderName.isEmpty()) {
-            showShortcuts(currentFolderName);
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
         }
         
         // 如果是子文件夹中的文件，跳过

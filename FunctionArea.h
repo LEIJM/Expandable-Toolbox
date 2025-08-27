@@ -5,7 +5,6 @@
 #include <QMenu>
 #include <QAction>
 #include <QStringList>
-<<<<<<< HEAD
 #include <QHash>
 #include <QSharedPointer>
 #include <QProcess>
@@ -14,8 +13,6 @@
 #include <QLineEdit>
 #include <QHBoxLayout>
 #include <QPushButton>
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 
 class QListWidgetItem;
 
@@ -24,7 +21,6 @@ Q_OBJECT
 
 public:
     FunctionArea(QWidget *parent = nullptr);
-<<<<<<< HEAD
     ~FunctionArea();
     
     // 获取当前选中的工具项
@@ -32,11 +28,6 @@ public:
     
     // 设置状态栏
     void setStatusBar(QStatusBar *bar) { statusBar = bar; }
-=======
-    
-    // 获取当前选中的工具项
-    QListWidgetItem* getSelectedItem() const;
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 
 signals:
     void shortcutSelected(const QString &fileName);
@@ -45,7 +36,6 @@ public slots:
     void showShortcuts(const QString &folderName);
     void onShortcutDoubleClicked(QListWidgetItem *item);
     void onRenameShortcut();
-<<<<<<< HEAD
     void onEditDescription(); // 编辑工具描述
     void onContextMenuRequested(const QPoint &pos);
     void onManageFileExtensions();
@@ -80,22 +70,11 @@ private:
     
     // 状态栏指针
     QStatusBar *statusBar;
-=======
-    void onContextMenuRequested(const QPoint &pos);
-    void onManageFileExtensions();
-    void saveFileExtensions(const QStringList &extensions);
-
-private:
-    QListWidget *shortcuts;
-    QString currentFolderName; // 当前显示的文件夹名称
-    QStringList supportedExtensions; // 支持的文件后缀列表
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     
     // 加载支持的文件后缀
     void loadFileExtensions();
     // 获取文件过滤器
     QStringList getFileFilters() const;
-<<<<<<< HEAD
     // 检查缓存是否有效
     bool isCacheValid(const QString &folderName) const;
     // 更新缓存
@@ -117,6 +96,4 @@ private:
     bool loadCachedShortcuts(const QString &folderName);
     // 扫描文件夹获取快捷方式
     void scanFolderForShortcuts(const QString &folderName);
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 };

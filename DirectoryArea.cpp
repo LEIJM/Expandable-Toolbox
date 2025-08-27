@@ -53,7 +53,6 @@ DirectoryArea::DirectoryArea(QWidget *parent)
     
     // 创建内容区域的容器和布局
     contentWidget = new QWidget();
-<<<<<<< HEAD
     
     // 使用QListWidget替代QVBoxLayout，以支持拖放排序
     folderListWidget = new QListWidget(contentWidget);
@@ -98,14 +97,6 @@ DirectoryArea::DirectoryArea(QWidget *parent)
     contentLayout->setSpacing(8);
     contentLayout->setContentsMargins(10, 10, 10, 10);
     contentLayout->addWidget(folderListWidget);
-=======
-    layout = new QVBoxLayout(contentWidget);
-    layout->setSpacing(8);
-    layout->setContentsMargins(10, 10, 10, 10);
-    
-    // 添加弹性空间，使按钮靠上对齐
-    layout->addStretch();
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     
     // 创建滚动区域
     scrollArea = new QScrollArea();
@@ -131,82 +122,6 @@ DirectoryArea::DirectoryArea(QWidget *parent)
     
     // 初始加载文件夹
     refreshFolders();
-<<<<<<< HEAD
-=======
-}
-
-void DirectoryArea::refreshFolders() {
-    // 清除现有按钮
-    QLayoutItem *item;
-    while ((item = layout->takeAt(0)) != nullptr) {
-        if (item->widget()) {
-            item->widget()->deleteLater();
-        }
-        delete item;
-    }
-    
-    folderButtons.clear();
-    
-    // 读取 tools 文件夹下的子文件夹
-    QDir toolsDir("tools");
-    if (!toolsDir.exists()) {
-        toolsDir.mkpath("."); // 如果tools文件夹不存在，创建它
-    }
-    
-    QStringList folders = toolsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    
-    // 为每个文件夹创建一个美化的按钮
-    for (const QString &folder : folders) {
-        QPushButton *button = new QPushButton(folder, this);
-        button->setStyleSheet(
-            "QPushButton {"
-            "    text-align: left;"
-            "    padding: 8px 12px;"
-            "    background-color: #ffffff;"
-            "    border: 1px solid #e0e0e0;"
-            "    border-radius: 4px;"
-            "    color: #333333;"
-            "}"
-            "QPushButton:hover {"
-            "    background-color: #e3f2fd;"
-            "    border: 1px solid #bbdefb;"
-            "}"
-            "QPushButton:pressed, QPushButton:checked {"
-            "    background-color: #bbdefb;"
-            "}");
-        
-        // 设置按钮为可选中状态
-        button->setCheckable(true);
-        
-        // 尝试为按钮添加图标
-        QString iconPath = "tools/" + folder + "/icon.png";
-        if (QFile::exists(iconPath)) {
-            button->setIcon(QIcon(iconPath));
-        } else {
-            // 使用默认文件夹图标
-            button->setIcon(QIcon::fromTheme("folder"));
-        }
-        
-        button->setIconSize(QSize(20, 20));
-        button->setContextMenuPolicy(Qt::CustomContextMenu);
-        
-        // 连接信号
-        connect(button, &QPushButton::clicked, this, &DirectoryArea::onFolderButtonClicked);
-        connect(button, &QWidget::customContextMenuRequested, this, [this, button](const QPoint &pos) {
-            selectedButton = button;
-            QMenu menu(this);
-            QAction *renameAction = menu.addAction("重命名分类");
-            connect(renameAction, &QAction::triggered, this, &DirectoryArea::onRenameFolderClicked);
-            menu.exec(button->mapToGlobal(pos));
-        });
-        
-        layout->addWidget(button);
-        folderButtons[folder] = button;
-    }
-    
-    // 添加弹性空间，使按钮靠上对齐
-    layout->addStretch();
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 }
 
 void DirectoryArea::refreshFolders() {
@@ -323,7 +238,6 @@ void DirectoryArea::onFolderButtonClicked() {
     }
 }
 
-<<<<<<< HEAD
 // 处理文件夹列表重新排序
 void DirectoryArea::onFoldersReordered() {
     // 保存当前顺序到配置文件
@@ -369,8 +283,6 @@ void DirectoryArea::onFolderContextMenuRequested(const QPoint &pos) {
     }
 }
 
-=======
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
 void DirectoryArea::onAddFolderClicked() {
     // 创建自定义对话框以便修改按钮文本
     QDialog dialog(this);
@@ -429,7 +341,6 @@ void DirectoryArea::onAddFolderClicked() {
 }
 
 void DirectoryArea::onRenameFolderClicked() {
-<<<<<<< HEAD
     // 获取当前选中的列表项
     QListWidgetItem *item = folderListWidget->currentItem();
     if (!item) {
@@ -437,13 +348,6 @@ void DirectoryArea::onRenameFolderClicked() {
     }
     
     QString oldName = item->text();
-=======
-    if (!selectedButton) {
-        return;
-    }
-    
-    QString oldName = selectedButton->text();
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
     
     // 创建自定义对话框以便修改按钮文本
     QDialog dialog(this);
@@ -490,7 +394,6 @@ void DirectoryArea::onRenameFolderClicked() {
         
         // 重命名文件夹
         if (toolsDir.rename(oldName, newName)) {
-<<<<<<< HEAD
             // 更新列表项文本
             item->setText(newName);
             item->setData(Qt::UserRole, newName);
@@ -509,15 +412,6 @@ void DirectoryArea::onRenameFolderClicked() {
             
             // 发出信号，通知选中了新的文件夹
             emit folderSelected(newName);
-=======
-            // 刷新文件夹列表
-            refreshFolders();
-            
-            // 选中重命名后的文件夹
-            if (folderButtons.contains(newName)) {
-                folderButtons[newName]->click();
-            }
->>>>>>> 24e5c4dcb27d9756890814ce87fc620fc05fe1cf
         } else {
             QMessageBox::critical(this, "重命名分类", "重命名分类文件夹失败。");
         }

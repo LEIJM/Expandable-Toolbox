@@ -1,0 +1,40 @@
+# Build directories
+build/
+
+# CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Testing/
+qtcsettings.cmake
+
+# Qt/Qt Creator
+*.pro.user
+*.user
+*.autosave
+*.qrc.depends
+*.qmlc
+*.jsc
+
+# Compiled objects/binaries (Windows/MinGW/MSVC)
+*.o
+*.obj
+*.dll
+*.exe
+*.lib
+*.a
+*.so
+*.pdb
+*.ilk
+
+# Logs
+*.log
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
