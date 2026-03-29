@@ -18,11 +18,23 @@
 #include <QDialog>
 #include <QLineEdit>
 #include <QTextEdit>
+#include <QFileDialog>
 #include <QIcon>
 #include <QSet>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <windows.h>
+#include <shellapi.h>
 
 FunctionArea::FunctionArea(QWidget *parent)
         : QWidget(parent), currentFolderName(""), maxProcesses(10), statusBar(nullptr) {
+    // 初始化异步扫描观察者
+    watcher = new QFutureWatcher<QList<ShortcutEntry>>(this);
+    connect(watcher, &QFutureWatcher<QList<ShortcutEntry>>::finished, [this]() {
+        onScanningFinished(currentFolderName, watcher->result());
+    });
+    
     // 初始化缓存清理定时器
     cacheCleanupTimer = new QTimer(this);
     cacheCleanupTimer->setInterval(30 * 60 * 1000); // 30分钟清理一次缓存
@@ -111,30 +123,45 @@ FunctionArea::FunctionArea(QWidget *parent)
     
     // 创建快捷方式列表
     shortcuts = new QListWidget(this);
+    
+    // 加载视图模式
+    loadViewMode();
+    
     shortcuts->setStyleSheet(
         "QListWidget {"
-        "    background-color: #ffffff;"
+        "    background-color: transparent;"
         "    border: none;"
         "    outline: none;"
+        "    padding: 10px;"
         "}"
         "QListWidget::item {"
-        "    padding: 8px;"
-        "    border-bottom: 1px solid #eeeeee;"
-        "}"
-        "QListWidget::item:selected {"
-        "    background-color: #e3f2fd;"
-        "    color: #1976d2;"
+        "    background-color: #ffffff;"
+        "    border: 1px solid #e9ecef;"
+        "    border-radius: 8px;"
+        "    margin-bottom: 4px;"
+        "    padding: 6px 12px;"
+        "    color: #212529;"
         "}"
         "QListWidget::item:hover {"
-        "    background-color: #f5f5f5;"
+        "    background-color: #f8f9fa;"
+        "    border-color: #4dabf7;"
+        "}"
+        "QListWidget::item:selected {"
+        "    background-color: #e7f5ff;"
+        "    border-color: #339af0;"
+        "    color: #1c7ed6;"
         "}");
     
-    // 设置图标大小
+    // 设置列表项布局
     shortcuts->setIconSize(QSize(24, 24));
-    
     shortcuts->setTextElideMode(Qt::ElideNone);
     shortcuts->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    shortcuts->setSpacing(4);
+    shortcuts->setSpacing(2);
+    shortcuts->setViewMode(QListView::ListMode);
+    shortcuts->setFlow(QListView::TopToBottom);
+    shortcuts->setMovement(QListView::Static);
+    shortcuts->setResizeMode(QListView::Adjust);
+    shortcuts->setWordWrap(true);
     
     // 启用拖放功能
     shortcuts->setDragEnabled(true);
@@ -250,9 +277,9 @@ void FunctionArea::refreshItemsForViewMode() {
         if (mode == "图标") {
             item->setSizeHint(QSize(170, 96));
         } else if (mode == "详情") {
-            item->setSizeHint(QSize(detailWidth, 58));
+            item->setSizeHint(QSize(detailWidth, 68));
         } else {
-            item->setSizeHint(QSize(detailWidth, 34));
+            item->setSizeHint(QSize(detailWidth, 42));
         }
         if (mode == "详情") {
             QString description = item->data(Qt::UserRole + 1).toString();
@@ -423,17 +450,15 @@ void FunctionArea::createShortcutItem(const ShortcutEntry &entry, int count) {
     
     // 存储文件路径
     item->setData(Qt::UserRole, entry.filePath);
+    item->setData(Qt::UserRole + 3, entry.arguments);
+    item->setData(Qt::UserRole + 4, entry.runAsAdmin);
+    item->setData(Qt::UserRole + 5, entry.isFavorite);
     
     // 设置交替背景色
     if (count % 2 == 0) {
         item->setBackground(QColor(252, 252, 252));
     } else {
         item->setBackground(QColor(248, 248, 248));
-    }
-
-    if (currentViewMode() == "详情") {
-        QString detail = entry.description.isEmpty() ? entry.filePath : entry.description;
-        item->setText(entry.displayName + "\n" + detail);
     }
 }
 
@@ -507,6 +532,9 @@ bool FunctionArea::loadCachedShortcuts(const QString &folderName) {
         createShortcutItem(entry, count++);
     }
     
+    // 应用当前视图模式的样式
+    refreshItemsForViewMode();
+    
     return true;
 }
 
@@ -514,6 +542,38 @@ bool FunctionArea::loadCachedShortcuts(const QString &folderName) {
 void FunctionArea::performSearch() {
     QString text = searchBox->text();
     onSearchTextChanged(text);
+}
+
+QJsonObject FunctionArea::loadMetadata(const QString &folderName) {
+    QFile file("tools/" + folderName + "/metadata.json");
+    if (file.open(QIODevice::ReadOnly)) {
+        return QJsonDocument::fromJson(file.readAll()).object();
+    }
+    return QJsonObject();
+}
+
+void FunctionArea::saveMetadata(const QString &folderName, const QJsonObject &metadata) {
+    QDir dir("tools/" + folderName);
+    if (!dir.exists()) dir.mkpath(".");
+    
+    QFile file("tools/" + folderName + "/metadata.json");
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(metadata).toJson());
+    }
+}
+
+void FunctionArea::updateShortcutMetadata(const QString &folderName, const QString &fileName, const QJsonObject &data) {
+    QJsonObject metadata = loadMetadata(folderName);
+    QJsonObject shortcuts = metadata["shortcuts"].toObject();
+    
+    QJsonObject shortcut = shortcuts[fileName].toObject();
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        shortcut[it.key()] = it.value();
+    }
+    
+    shortcuts[fileName] = shortcut;
+    metadata["shortcuts"] = shortcuts;
+    saveMetadata(folderName, metadata);
 }
 
 // 处理搜索文本变化
@@ -575,70 +635,42 @@ void FunctionArea::clearSearch() {
 
 // 扫描文件夹获取快捷方式
 void FunctionArea::scanFolderForShortcuts(const QString &folderName) {
-    // 设置鼠标等待光标
-    QApplication::setOverrideCursor(Qt::WaitCursor);
+    if (watcher->isRunning()) {
+        watcher->cancel();
+    }
     
-    // 读取指定文件夹及其子文件夹下的支持的文件类型
-    QDir toolsDir("tools/" + folderName);
-    QHash<QString, QString> renameMap;
-    QDir shortcutsConfigDir("tools/" + folderName + "/shortcuts");
-    if (shortcutsConfigDir.exists()) {
-        QStringList renameFiles = shortcutsConfigDir.entryList(QStringList() << "*.rename", QDir::Files);
-        for (const QString &renameFileName : renameFiles) {
-            QFile renameFile(shortcutsConfigDir.filePath(renameFileName));
-            if (renameFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                QString customName = QTextStream(&renameFile).readAll().trimmed();
-                renameFile.close();
-                if (!customName.isEmpty() && renameFileName.endsWith(".rename")) {
-                    QString targetFileName = renameFileName.left(renameFileName.size() - 7);
-                    renameMap[targetFileName] = customName;
-                }
-            }
-        }
-    }
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    if (statusBar) statusBar->showMessage("正在扫描工具...", 0);
+    
+    QFuture<QList<ShortcutEntry>> future = QtConcurrent::run(&FunctionArea::scanFolderWorker, this, folderName, getFileFilters());
+    watcher->setFuture(future);
+}
 
-    QHash<QString, QString> descriptionMap;
-    QDir descriptionConfigDir("tools/" + folderName + "/descriptions");
-    if (descriptionConfigDir.exists()) {
-        QStringList descriptionFiles = descriptionConfigDir.entryList(QStringList() << "*.desc", QDir::Files);
-        for (const QString &descriptionFileName : descriptionFiles) {
-            QFile descriptionFile(descriptionConfigDir.filePath(descriptionFileName));
-            if (descriptionFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                QString description = QTextStream(&descriptionFile).readAll().trimmed();
-                descriptionFile.close();
-                if (!description.isEmpty() && descriptionFileName.endsWith(".desc")) {
-                    QString targetFileName = descriptionFileName.left(descriptionFileName.size() - 5);
-                    descriptionMap[targetFileName] = description;
-                }
-            }
-        }
-    }
+QList<FunctionArea::ShortcutEntry> FunctionArea::scanFolderWorker(const QString &folderName, const QStringList &filters) {
+    QDir toolsDir("tools/" + folderName);
+    QJsonObject metadata = loadMetadata(folderName);
+    QJsonObject shortcutsJson = metadata["shortcuts"].toObject();
 
     QList<ShortcutEntry> scannedFiles;
     
     // 首先扫描所有文件夹中的main.cfg文件
-    QMap<QString, QStringList> mainConfigFiles; // 文件夹路径 -> 主要可执行文件路径列表
-    QSet<QString> foldersWithMainCfg; // 存储包含main.cfg的文件夹及其子文件夹路径
+    QMap<QString, QStringList> mainConfigFiles; 
+    QSet<QString> foldersWithMainCfg; 
     QDirIterator configIterator(toolsDir.path(), QStringList() << "main.cfg", QDir::Files, QDirIterator::Subdirectories);
     
     while (configIterator.hasNext()) {
         configIterator.next();
         QFileInfo configFileInfo = configIterator.fileInfo();
         QString dirPath = configFileInfo.absolutePath();
-        
-        // 将该文件夹添加到包含main.cfg的文件夹集合中
         foldersWithMainCfg.insert(dirPath);
         
         QFile configFile(configFileInfo.absoluteFilePath());
         if (configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QTextStream in(&configFile);
             QStringList exePaths;
-            
-            // 逐行读取main.cfg文件中的路径
             while (!in.atEnd()) {
                 QString line = in.readLine().trimmed();
                 if (!line.isEmpty()) {
-                    // 如果是相对路径，转换为绝对路径
                     if (QFileInfo(line).isRelative()) {
                         line = dirPath + "/" + line;
                     }
@@ -646,74 +678,102 @@ void FunctionArea::scanFolderForShortcuts(const QString &folderName) {
                 }
             }
             configFile.close();
-            
             if (!exePaths.isEmpty()) {
                 mainConfigFiles[dirPath] = exePaths;
             }
         }
     }
     
-    // 创建QDirIterator来递归遍历文件夹
-    QDirIterator dirIterator(toolsDir.path(), getFileFilters(), QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    
-    // 计数器，用于交替背景色
-    int count = 0;
+    QDirIterator dirIterator(toolsDir.path(), filters, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
     
     while (dirIterator.hasNext()) {
         dirIterator.next();
         QFileInfo fileInfo = dirIterator.fileInfo();
         QString dirPath = fileInfo.absolutePath();
         
-        // 检查文件所在路径是否是某个包含main.cfg的文件夹的子文件夹
         bool skipDueToParentFolder = false;
         foreach (const QString &folderWithCfg, foldersWithMainCfg) {
-            // 如果当前文件所在目录是包含main.cfg的文件夹的子文件夹（但不是同一个文件夹）
             if (dirPath != folderWithCfg && dirPath.startsWith(folderWithCfg)) {
                 skipDueToParentFolder = true;
                 break;
             }
         }
         
-        // 如果是子文件夹中的文件，跳过
-        if (skipDueToParentFolder) {
-            continue;
-        }
+        if (skipDueToParentFolder) continue;
         
-        // 检查文件是否是支持的类型
-        if (fileInfo.isFile() && supportedExtensions.contains(fileInfo.suffix().toLower())) {
-            // 检查该文件所在目录是否有main.cfg配置
+        if (fileInfo.isFile() && filters.contains("*." + fileInfo.suffix().toLower())) {
             if (mainConfigFiles.contains(dirPath)) {
-                // 如果有main.cfg，只显示指定的文件列表中的文件
                 if (!mainConfigFiles[dirPath].contains(fileInfo.absoluteFilePath())) {
-                    continue; // 跳过非指定文件
+                    continue; 
                 }
             }
             
+            QString fileName = fileInfo.fileName();
+            QJsonObject itemMeta = shortcutsJson[fileName].toObject();
+
             ShortcutEntry entry;
             entry.filePath = fileInfo.absoluteFilePath();
-            entry.displayName = renameMap.value(fileInfo.fileName(), fileInfo.completeBaseName());
-            entry.description = descriptionMap.value(fileInfo.fileName());
+            entry.displayName = itemMeta.contains("displayName") ? itemMeta["displayName"].toString() : fileInfo.completeBaseName();
+            entry.description = itemMeta.contains("description") ? itemMeta["description"].toString() : "";
+            entry.arguments = itemMeta.contains("arguments") ? itemMeta["arguments"].toString() : "";
+            entry.runAsAdmin = itemMeta.contains("runAsAdmin") ? itemMeta["runAsAdmin"].toBool() : false;
+            entry.isFavorite = itemMeta.contains("isFavorite") ? itemMeta["isFavorite"].toBool() : false;
             
-            // 创建列表项
-            createShortcutItem(entry, count++);
             scannedFiles.append(entry);
         }
     }
     
-    // 恢复鼠标光标
+    return scannedFiles;
+}
+
+void FunctionArea::onScanningFinished(const QString &folderName, const QList<ShortcutEntry> &files) {
     QApplication::restoreOverrideCursor();
+    if (statusBar) statusBar->clearMessage();
     
-    updateCache(folderName, scannedFiles);
+    // 如果返回的文件夹名称与当前正在查看的不一致，说明用户切换了文件夹，直接返回
+    if (folderName != currentFolderName) {
+        return;
+    }
+    
+    // 先清空列表，防止重复
+    shortcuts->clear();
+    
+    // 应用自定义排序
+    QList<ShortcutEntry> orderedFiles = applyCustomOrder(folderName, files);
+    
+    // 显示快捷方式
+    int count = 0;
+    for (const auto &entry : orderedFiles) {
+        createShortcutItem(entry, count++);
+    }
+    
+    // 更新视图样式（应用高度和间距）
+    refreshItemsForViewMode();
+    
+    // 更新缓存
+    updateCache(folderName, files);
+    
+    // 成功加载后，保存所有项目用于搜索
+    qDeleteAll(allItems);
+    allItems.clear();
+    for (int i = 0; i < shortcuts->count(); i++) {
+        QListWidgetItem* originalItem = shortcuts->item(i);
+        QListWidgetItem* clonedItem = originalItem->clone();
+        allItems.append(clonedItem);
+    }
 }
 
 void FunctionArea::showShortcuts(const QString &folderName) {
     // 保存当前文件夹名称
     currentFolderName = folderName;
     
+    // 如果有正在运行的扫描，先停止
+    if (watcher->isRunning()) {
+        watcher->cancel();
+    }
+
     // 清空当前快捷方式列表和存储的所有项目
     shortcuts->clear();
-    qDeleteAll(allItems);
-    allItems.clear();
     
     // 清空搜索框
     searchBox->clear();
@@ -722,6 +782,8 @@ void FunctionArea::showShortcuts(const QString &folderName) {
     // 尝试加载缓存的快捷方式
     if (loadCachedShortcuts(folderName)) {
         // 成功加载缓存后，保存所有项目用于搜索（使用深拷贝）
+        qDeleteAll(allItems);
+        allItems.clear();
         for (int i = 0; i < shortcuts->count(); i++) {
             QListWidgetItem* originalItem = shortcuts->item(i);
             QListWidgetItem* clonedItem = originalItem->clone();
@@ -732,13 +794,6 @@ void FunctionArea::showShortcuts(const QString &folderName) {
     
     // 缓存无效，需要重新扫描
     scanFolderForShortcuts(folderName);
-    
-    // 扫描后保存所有项目用于搜索（使用深拷贝）
-    for (int i = 0; i < shortcuts->count(); i++) {
-        QListWidgetItem* originalItem = shortcuts->item(i);
-        QListWidgetItem* clonedItem = originalItem->clone();
-        allItems.append(clonedItem);
-    }
 }
 
 void FunctionArea::onContextMenuRequested(const QPoint &pos) {
@@ -758,11 +813,35 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
         // 添加编辑描述选项
         QAction *descriptionAction = menu.addAction("编辑描述");
         connect(descriptionAction, &QAction::triggered, this, &FunctionArea::onEditDescription);
+        
+        // 添加启动参数选项
+        QAction *argsAction = menu.addAction("启动参数");
+        connect(argsAction, &QAction::triggered, this, &FunctionArea::onEditArguments);
+        
+        // 添加管理员权限选项
+        bool isAdmin = item->data(Qt::UserRole + 4).toBool();
+        QAction *adminAction = menu.addAction(isAdmin ? "取消管理员权限" : "以管理员权限运行");
+        connect(adminAction, &QAction::triggered, this, &FunctionArea::onToggleAdmin);
+        
+        menu.addSeparator();
+        
         QAction *openInExplorerAction = menu.addAction("在资源管理器中打开");
         connect(openInExplorerAction, &QAction::triggered, this, &FunctionArea::onOpenShortcutInExplorer);
         
         menu.addSeparator();
+        
+        // 添加删除选项
+        QAction *deleteAction = menu.addAction("删除工具");
+        deleteAction->setIcon(QIcon::fromTheme("edit-delete", QIcon(":/icons/delete.png")));
+        connect(deleteAction, &QAction::triggered, this, &FunctionArea::onDeleteTool);
+        
+        menu.addSeparator();
     }
+    
+    // 添加工具选项
+    QAction *addToolAction = menu.addAction("添加工具");
+    addToolAction->setIcon(QIcon::fromTheme("list-add", QIcon(":/icons/add.png")));
+    connect(addToolAction, &QAction::triggered, this, &FunctionArea::onAddTool);
     
     // 添加管理文件后缀选项
     QAction *manageExtensionsAction = menu.addAction("管理支持的文件类型");
@@ -770,6 +849,146 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
     
     // 显示菜单
     menu.exec(shortcuts->mapToGlobal(pos));
+}
+
+void FunctionArea::onEditArguments() {
+    QListWidgetItem *item = getSelectedItem();
+    if (!item) return;
+    
+    QString filePath = item->data(Qt::UserRole).toString();
+    QFileInfo fileInfo(filePath);
+    QString currentArgs = item->data(Qt::UserRole + 3).toString();
+    
+    // 创建自定义对话框
+    QDialog dialog(this);
+    dialog.setWindowTitle("编辑启动参数");
+    
+    // 创建输入框和标签
+    QLineEdit *lineEdit = new QLineEdit(&dialog);
+    lineEdit->setText(currentArgs);
+    lineEdit->setPlaceholderText("例如: -port 8080 --debug");
+    QLabel *label = new QLabel("请输入启动参数 (用空格分隔):", &dialog);
+    
+    // 创建按钮
+    QPushButton *saveButton = new QPushButton("保存", &dialog);
+    QPushButton *cancelButton = new QPushButton("取消", &dialog);
+    
+    // 设置按钮角色
+    saveButton->setDefault(true);
+    dialog.connect(saveButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    dialog.connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    
+    // 创建布局
+    QVBoxLayout *mainLayout = new QVBoxLayout;
+    mainLayout->addWidget(label);
+    mainLayout->addWidget(lineEdit);
+    
+    QHBoxLayout *buttonLayout = new QHBoxLayout;
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(saveButton);
+    buttonLayout->addWidget(cancelButton);
+    
+    mainLayout->addLayout(buttonLayout);
+    dialog.setLayout(mainLayout);
+    
+    // 显示对话框
+    if (dialog.exec() == QDialog::Accepted) {
+        QString newArgs = lineEdit->text();
+        QJsonObject data;
+        data["arguments"] = newArgs;
+        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+        item->setData(Qt::UserRole + 3, newArgs);
+    }
+}
+
+void FunctionArea::onToggleAdmin() {
+    QListWidgetItem *item = getSelectedItem();
+    if (!item) return;
+    
+    QString filePath = item->data(Qt::UserRole).toString();
+    QFileInfo fileInfo(filePath);
+    bool currentAdmin = item->data(Qt::UserRole + 4).toBool();
+    bool newAdmin = !currentAdmin;
+    
+    QJsonObject data;
+    data["runAsAdmin"] = newAdmin;
+    updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+    item->setData(Qt::UserRole + 4, newAdmin);
+    
+    // 如果是以管理员身份运行，可以在名称后面加个小标记或者改下颜色
+    refreshItemsForViewMode();
+}
+
+void FunctionArea::onAddTool() {
+    if (currentFolderName.isEmpty()) {
+        QMessageBox::warning(this, "添加工具", "请先选择一个分类。");
+        return;
+    }
+    
+    QString filePath = QFileDialog::getOpenFileName(this, "选择要添加的工具", "", 
+                                                   "可执行文件 (*.exe *.cmd *.bat);;所有文件 (*.*)");
+    if (filePath.isEmpty()) return;
+    
+    QFileInfo fileInfo(filePath);
+    QString destDir = "tools/" + currentFolderName;
+    QString destPath = destDir + "/" + fileInfo.fileName();
+    
+    // 如果文件已存在，提示用户
+    if (QFile::exists(destPath)) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("添加工具");
+        msgBox.setText("工具已存在，是否覆盖？");
+        msgBox.setIcon(QMessageBox::Question);
+        QPushButton *yesButton = msgBox.addButton("是", QMessageBox::YesRole);
+        QPushButton *noButton = msgBox.addButton("否", QMessageBox::NoRole);
+        msgBox.setDefaultButton(noButton);
+        
+        msgBox.exec();
+        if (msgBox.clickedButton() == noButton) return;
+        QFile::remove(destPath);
+    }
+    
+    // 复制文件
+    if (QFile::copy(filePath, destPath)) {
+        // 刷新列表
+        scanFolderForShortcuts(currentFolderName);
+    } else {
+        QMessageBox::critical(this, "添加工具", "无法复制文件到工具目录。");
+    }
+}
+
+void FunctionArea::onDeleteTool() {
+    QListWidgetItem *item = getSelectedItem();
+    if (!item) return;
+    
+    QString filePath = item->data(Qt::UserRole).toString();
+    QFileInfo fileInfo(filePath);
+    
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("删除工具");
+    msgBox.setText(QString("确定从工具箱中删除 '%1' 吗？\n注意：这会从磁盘上永久删除该文件。").arg(item->text()));
+    msgBox.setIcon(QMessageBox::Warning);
+    QPushButton *deleteButton = msgBox.addButton("删除", QMessageBox::AcceptRole);
+    QPushButton *cancelButton = msgBox.addButton("取消", QMessageBox::RejectRole);
+    msgBox.setDefaultButton(cancelButton);
+    
+    msgBox.exec();
+    
+    if (msgBox.clickedButton() == deleteButton) {
+        if (QFile::remove(filePath)) {
+            // 从元数据中移除
+            QJsonObject metadata = loadMetadata(currentFolderName);
+            QJsonObject shortcutsJson = metadata["shortcuts"].toObject();
+            shortcutsJson.remove(fileInfo.fileName());
+            metadata["shortcuts"] = shortcutsJson;
+            saveMetadata(currentFolderName, metadata);
+            
+            // 刷新列表
+            scanFolderForShortcuts(currentFolderName);
+        } else {
+            QMessageBox::critical(this, "删除工具", "无法删除文件，请检查文件是否正在运行。");
+        }
+    }
 }
 
 void FunctionArea::onOpenShortcutInExplorer() {
@@ -832,28 +1051,14 @@ void FunctionArea::onRenameShortcut() {
     QString newName = lineEdit->text();
     
     if (ok && !newName.isEmpty() && newName != currentName) {
-        // 创建快捷方式文件（.lnk或.desktop）来实现重命名
-        // 在Windows上，我们可以创建一个.lnk文件
-        QString shortcutDir = "tools/" + currentFolderName + "/shortcuts";
-        QDir dir;
-        if (!dir.exists(shortcutDir)) {
-            dir.mkpath(shortcutDir);
-        }
+        // 更新元数据
+        QJsonObject data;
+        data["displayName"] = newName;
+        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
         
-        // 创建配置文件来存储重命名信息
-        QString configPath = shortcutDir + "/" + fileInfo.fileName() + ".rename";
-        QFile configFile(configPath);
-        if (configFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&configFile);
-            out << newName;
-            configFile.close();
-            
-            // 更新列表项
-            item->setData(Qt::UserRole + 2, newName);
-            refreshItemsForViewMode();
-        } else {
-            QMessageBox::warning(this, "重命名工具", "无法保存重命名信息。");
-        }
+        // 更新列表项
+        item->setData(Qt::UserRole + 2, newName);
+        refreshItemsForViewMode();
     }
 }
 
@@ -908,40 +1113,15 @@ void FunctionArea::onEditDescription() {
     QString newDescription = textEdit->toPlainText().trimmed();
     
     if (ok) {
-        // 创建描述文件夹
-        QString descDir = "tools/" + currentFolderName + "/descriptions";
-        QDir dir;
-        if (!dir.exists(descDir)) {
-            dir.mkpath(descDir);
-        }
+        // 更新元数据
+        QJsonObject data;
+        data["description"] = newDescription;
+        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
         
-        // 创建或更新描述文件
-        QString descPath = descDir + "/" + fileInfo.fileName() + ".desc";
-        QFile descFile(descPath);
-        
-        if (newDescription.isEmpty()) {
-            // 如果描述为空，删除描述文件
-            if (descFile.exists()) {
-                descFile.remove();
-            }
-            item->setToolTip(filePath); // 恢复为文件路径
-            item->setData(Qt::UserRole + 1, QVariant()); // 清除描述数据
-            refreshItemsForViewMode();
-        } else {
-            // 保存描述文件
-            if (descFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                QTextStream out(&descFile);
-                out << newDescription;
-                descFile.close();
-                
-                // 更新工具提示和描述数据
-                item->setToolTip(newDescription);
-                item->setData(Qt::UserRole + 1, newDescription);
-                refreshItemsForViewMode();
-            } else {
-                QMessageBox::warning(this, "编辑描述", "无法保存描述信息。");
-            }
-        }
+        // 更新列表项
+        item->setToolTip(newDescription.isEmpty() ? filePath : newDescription);
+        item->setData(Qt::UserRole + 1, newDescription);
+        refreshItemsForViewMode();
     }
 }
 
@@ -998,11 +1178,11 @@ void FunctionArea::onManageFileExtensions() {
         
         // 刷新当前显示的快捷方式
         if (!currentFolderName.isEmpty()) {
-            showShortcuts(currentFolderName);
-            qDebug() << "已更新文件类型并刷新显示";
+            scanFolderForShortcuts(currentFolderName);
+            if (statusBar) {
+                statusBar->showMessage("文件类型已更新并刷新显示", 3000);
+            }
         } else {
-            qDebug() << "已更新文件类型，请选择一个文件夹以查看更改";
-            // 可以在这里添加一个状态栏消息或弹出提示
             if (statusBar) {
                 statusBar->showMessage("文件类型已更新，请选择一个文件夹以查看更改", 3000);
             }
@@ -1084,33 +1264,35 @@ void FunctionArea::onShortcutDoubleClicked(QListWidgetItem *item) {
     // 获取文件信息
     QFileInfo fileInfo(exeFilePath);
     
-    // 检查是否有参数配置文件
-    QStringList args;
-    QString argsConfigPath = "tools/" + currentFolderName + "/shortcuts/" + fileInfo.fileName() + ".args";
-    if (QFile::exists(argsConfigPath)) {
-        QFile argsFile(argsConfigPath);
-        if (argsFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QTextStream in(&argsFile);
-            QString argsStr = in.readAll().trimmed();
-            if (!argsStr.isEmpty()) {
-                args = QProcess::splitCommand(argsStr);
-            }
-            argsFile.close();
-        } else {
-            qDebug() << "无法打开参数配置文件: " << argsConfigPath;
-        }
-    }
+    // 从数据角色获取启动参数
+    QString argumentsStr = item->data(Qt::UserRole + 3).toString();
+    QStringList args = QProcess::splitCommand(argumentsStr);
     
-    // 使用进程管理启动进程
-    if (!startProcess(exeFilePath, args)) {
-        QMessageBox::critical(this, "启动工具", 
-            QString("无法启动工具: %1\n\n请检查文件权限或是否被其他程序占用。").arg(fileInfo.fileName()));
-    } else {
-        // 显示成功启动的提示（可选，如果不想每次都提示，可以注释掉）
-        // QMessageBox::information(this, "启动工具", 
-        //     QString("成功启动工具: %1\n\n当前运行工具数: %2/%3").arg(fileInfo.fileName()).arg(activeProcesses.size()).arg(maxProcesses));
+    // 是否以管理员权限运行
+    bool runAsAdmin = item->data(Qt::UserRole + 4).toBool();
+    
+    if (runAsAdmin) {
+        // 在 Windows 上使用 ShellExecuteEx 以管理员身份启动
+        std::wstring wExePath = exeFilePath.toStdWString();
+        std::wstring wArgs = argumentsStr.toStdWString();
         
-        // 在状态栏显示提示（如果有状态栏）
-        emit shortcutSelected(fileInfo.fileName());
+        SHELLEXECUTEINFOW sei = { sizeof(sei) };
+        sei.lpVerb = L"runas";
+        sei.lpFile = wExePath.c_str();
+        sei.lpParameters = wArgs.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        
+        if (!ShellExecuteExW(&sei)) {
+            QMessageBox::critical(this, "启动工具", "无法以管理员身份启动工具。");
+            return;
+        }
+    } else {
+        // 使用现有进程管理逻辑启动
+        if (!startProcess(exeFilePath, args)) {
+            QMessageBox::critical(this, "启动工具", 
+                QString("无法启动工具: %1\n\n请检查文件权限或是否被其他程序占用。").arg(fileInfo.fileName()));
+        } else {
+            emit shortcutSelected(fileInfo.fileName());
+        }
     }
 }

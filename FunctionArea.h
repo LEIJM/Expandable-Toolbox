@@ -16,6 +16,11 @@
 #include <QPushButton>
 #include <QDateTime>
 #include <QComboBox>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QtConcurrent>
+#include <QFutureWatcher>
 
 class QListWidgetItem;
 
@@ -23,6 +28,15 @@ class FunctionArea : public QWidget {
 Q_OBJECT
 
 public:
+    struct ShortcutEntry {
+        QString filePath;
+        QString displayName;
+        QString description;
+        QString arguments;
+        bool runAsAdmin = false;
+        bool isFavorite = false;
+    };
+
     FunctionArea(QWidget *parent = nullptr);
     ~FunctionArea();
     
@@ -35,12 +49,18 @@ public:
 
 signals:
     void shortcutSelected(const QString &fileName);
+    void scanningFinished(const QString &folderName, const QList<ShortcutEntry> &files);
 
 public slots:
     void showShortcuts(const QString &folderName);
+    void onScanningFinished(const QString &folderName, const QList<ShortcutEntry> &files);
     void onShortcutDoubleClicked(QListWidgetItem *item);
     void onRenameShortcut();
     void onEditDescription(); // 编辑工具描述
+    void onEditArguments();   // 编辑启动参数
+    void onToggleAdmin();     // 切换管理员权限
+    void onAddTool();         // 添加新工具
+    void onDeleteTool();      // 删除工具
     void onOpenShortcutInExplorer();
     void onContextMenuRequested(const QPoint &pos);
     void onManageFileExtensions();
@@ -51,12 +71,6 @@ public slots:
     void onViewModeChanged(const QString &mode);
 
 private:
-    struct ShortcutEntry {
-        QString filePath;
-        QString displayName;
-        QString description;
-    };
-
     QListWidget *shortcuts;
     QLineEdit *searchBox; // 搜索框
     QPushButton *clearButton; // 清除搜索按钮
@@ -65,6 +79,15 @@ private:
     QStringList supportedExtensions; // 支持的文件后缀列表
     QList<QListWidgetItem*> allItems; // 存储所有项目，用于搜索功能
     QTimer *searchTimer; // 搜索延迟定时器
+    
+    // 元数据管理
+    QJsonObject loadMetadata(const QString &folderName);
+    void saveMetadata(const QString &folderName, const QJsonObject &metadata);
+    void updateShortcutMetadata(const QString &folderName, const QString &fileName, const QJsonObject &data);
+    
+    // 异步扫描相关
+    QFutureWatcher<QList<ShortcutEntry>> *watcher;
+    QList<ShortcutEntry> scanFolderWorker(const QString &folderName, const QStringList &filters);
     
     // 执行搜索操作
     void performSearch();
