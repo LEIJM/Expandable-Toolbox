@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Expandable-Toolbox VERSION 0.1 LANGUAGES CXX)
+set(APP_VERSION "0.1.0")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" APP_VERSION LIMIT_COUNT 1)
+    string(STRIP "${APP_VERSION}" APP_VERSION)
+endif()
+
+project(Expandable-Toolbox VERSION ${APP_VERSION} LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -55,6 +61,12 @@ else()
 endif()
 
 target_link_libraries(Expandable-Toolbox PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/AppVersion.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/AppVersion.h
+    @ONLY
+)
+target_include_directories(Expandable-Toolbox PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an

@@ -1,0 +1,2 @@
+#pragma once
+#define APP_VERSION_STRING "@APP_VERSION@"

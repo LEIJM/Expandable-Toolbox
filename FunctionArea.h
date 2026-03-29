@@ -15,6 +15,7 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QDateTime>
+#include <QComboBox>
 
 class QListWidgetItem;
 
@@ -27,6 +28,7 @@ public:
     
     // 获取当前选中的工具项
     QListWidgetItem* getSelectedItem() const;
+    QString currentViewMode() const;
     
     // 设置状态栏
     void setStatusBar(QStatusBar *bar) { statusBar = bar; }
@@ -39,12 +41,14 @@ public slots:
     void onShortcutDoubleClicked(QListWidgetItem *item);
     void onRenameShortcut();
     void onEditDescription(); // 编辑工具描述
+    void onOpenShortcutInExplorer();
     void onContextMenuRequested(const QPoint &pos);
     void onManageFileExtensions();
     void saveFileExtensions(const QStringList &extensions);
     void onShortcutsReordered(); // 处理工具列表重新排序
     void onSearchTextChanged(const QString &text); // 处理搜索文本变化
     void clearSearch(); // 清除搜索框
+    void onViewModeChanged(const QString &mode);
 
 private:
     struct ShortcutEntry {
@@ -56,6 +60,7 @@ private:
     QListWidget *shortcuts;
     QLineEdit *searchBox; // 搜索框
     QPushButton *clearButton; // 清除搜索按钮
+    QComboBox *viewModeCombo;
     QString currentFolderName; // 当前显示的文件夹名称
     QStringList supportedExtensions; // 支持的文件后缀列表
     QList<QListWidgetItem*> allItems; // 存储所有项目，用于搜索功能
@@ -106,4 +111,8 @@ private:
     bool loadCachedShortcuts(const QString &folderName);
     // 扫描文件夹获取快捷方式
     void scanFolderForShortcuts(const QString &folderName);
+    void applyViewMode(const QString &mode);
+    void refreshItemsForViewMode();
+    void loadViewMode();
+    void saveViewMode(const QString &mode) const;
 };

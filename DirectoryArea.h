@@ -21,11 +21,13 @@ public:
     
     // 刷新分类列表
     void refreshFolders();
+    bool selectFirstFolder();
 private slots:
     void onFolderButtonClicked();
     void onFolderItemClicked(QListWidgetItem *item);
     void onAddFolderClicked();
     void onRenameFolderClicked();
+    void onOpenFolderInExplorer();
     void onContextMenuRequested(const QPoint &pos);
     void onFolderContextMenuRequested(const QPoint &pos);
     void onFoldersReordered();

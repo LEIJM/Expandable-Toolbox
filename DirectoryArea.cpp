@@ -11,6 +11,7 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QProcess>
 #include "DirectoryArea.h"
 
 DirectoryArea::DirectoryArea(QWidget *parent)
@@ -203,6 +204,19 @@ void DirectoryArea::refreshFolders() {
     // layout->addStretch(); // 这行代码已被移除，因为我们使用QListWidget而不是QVBoxLayout
 }
 
+bool DirectoryArea::selectFirstFolder() {
+    if (folderListWidget->count() <= 0) {
+        return false;
+    }
+    QListWidgetItem *item = folderListWidget->item(0);
+    if (!item) {
+        return false;
+    }
+    folderListWidget->setCurrentItem(item);
+    onFolderItemClicked(item);
+    return true;
+}
+
 void DirectoryArea::onFolderItemClicked(QListWidgetItem *item) {
     if (item) {
         // 获取文件夹名称
@@ -277,9 +291,25 @@ void DirectoryArea::onFolderContextMenuRequested(const QPoint &pos) {
         // 添加重命名选项
         QAction *renameAction = menu.addAction("重命名分类");
         connect(renameAction, &QAction::triggered, this, &DirectoryArea::onRenameFolderClicked);
+        QAction *openInExplorerAction = menu.addAction("在资源管理器中打开");
+        connect(openInExplorerAction, &QAction::triggered, this, &DirectoryArea::onOpenFolderInExplorer);
         
         // 显示菜单
         menu.exec(folderListWidget->mapToGlobal(pos));
+    }
+}
+
+void DirectoryArea::onOpenFolderInExplorer() {
+    QListWidgetItem *item = folderListWidget->currentItem();
+    if (!item) {
+        return;
+    }
+
+    QString folderName = item->text();
+    QDir targetDir("tools/" + folderName);
+    QString targetPath = QDir::toNativeSeparators(targetDir.absolutePath());
+    if (!QProcess::startDetached("explorer.exe", QStringList() << targetPath)) {
+        QMessageBox::warning(this, "打开分类", "无法打开资源管理器。");
     }
 }
 

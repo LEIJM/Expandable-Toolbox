@@ -3,6 +3,7 @@
 #include "mainwindow.h"
 #include "DirectoryArea.h"
 #include "FunctionArea.h"
+#include "AppVersion.h"
 #include <QLabel>
 #include <QFile>
 #include <QTextStream>
@@ -57,6 +58,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 连接信号和槽
     connect(directoryArea, &DirectoryArea::folderSelected, functionArea, &FunctionArea::showShortcuts);
+    directoryArea->selectFirstFolder();
 
     // 创建状态栏
     QStatusBar* bar = statusBar();
@@ -137,7 +139,7 @@ void MainWindow::showAboutDialog() {
     titleLabel->setStyleSheet("font-size: 20pt; font-weight: bold; color: #2c3e50;");
     
     // 获取应用程序版本信息
-    QString versionText = "版本: 2.1.0";
+    QString versionText = QString("版本: %1").arg(APP_VERSION_STRING);
     QLabel *versionInfoLabel = new QLabel(versionText, aboutDialog);
     versionInfoLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     versionInfoLabel->setStyleSheet("font-size: 10pt; color: #7f8c8d;");
