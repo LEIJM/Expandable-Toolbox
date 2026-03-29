@@ -88,7 +88,15 @@ FunctionArea::FunctionArea(QWidget *parent)
         "    background-color: #ffffff;"
         "    min-width: 90px;"
         "}"
-        "QComboBox::drop-down { border: none; }");
+        "QComboBox::drop-down { border: none; }"
+        "QComboBox QAbstractItemView {"
+        "    border: 1px solid #bdc3c7;"
+        "    background-color: #ffffff;"
+        "    selection-background-color: #e3f2fd;"
+        "    selection-color: #1976d2;"
+        "    padding: 4px;"
+        "    outline: none;"
+        "}");
     
     searchLayout->addWidget(searchBox);
     searchLayout->addWidget(clearButton);
@@ -124,8 +132,9 @@ FunctionArea::FunctionArea(QWidget *parent)
     // 设置图标大小
     shortcuts->setIconSize(QSize(24, 24));
     
-    // 设置列表项高度
-    shortcuts->setStyleSheet(shortcuts->styleSheet() + "QListWidget::item { height: 36px; }");
+    shortcuts->setTextElideMode(Qt::ElideNone);
+    shortcuts->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    shortcuts->setSpacing(4);
     
     // 启用拖放功能
     shortcuts->setDragEnabled(true);
@@ -208,8 +217,8 @@ void FunctionArea::applyViewMode(const QString &mode) {
         shortcuts->setFlow(QListView::LeftToRight);
         shortcuts->setWrapping(true);
         shortcuts->setResizeMode(QListView::Adjust);
-        shortcuts->setGridSize(QSize(110, 86));
-        shortcuts->setIconSize(QSize(36, 36));
+        shortcuts->setGridSize(QSize(180, 110));
+        shortcuts->setIconSize(QSize(40, 40));
         shortcuts->setWordWrap(true);
         refreshItemsForViewMode();
         return;
@@ -220,7 +229,7 @@ void FunctionArea::applyViewMode(const QString &mode) {
     shortcuts->setResizeMode(QListView::Fixed);
     shortcuts->setGridSize(QSize());
     shortcuts->setIconSize(QSize(24, 24));
-    shortcuts->setWordWrap(mode == "详情");
+    shortcuts->setWordWrap(true);
     refreshItemsForViewMode();
 }
 
@@ -231,11 +240,19 @@ void FunctionArea::onViewModeChanged(const QString &mode) {
 
 void FunctionArea::refreshItemsForViewMode() {
     QString mode = currentViewMode();
-    auto applyForItem = [mode](QListWidgetItem *item) {
+    int detailWidth = qMax(320, shortcuts->viewport()->width() - 20);
+    auto applyForItem = [mode, detailWidth](QListWidgetItem *item) {
         QString displayName = item->data(Qt::UserRole + 2).toString();
         if (displayName.isEmpty()) {
             displayName = item->text();
             item->setData(Qt::UserRole + 2, displayName);
+        }
+        if (mode == "图标") {
+            item->setSizeHint(QSize(170, 96));
+        } else if (mode == "详情") {
+            item->setSizeHint(QSize(detailWidth, 58));
+        } else {
+            item->setSizeHint(QSize(detailWidth, 34));
         }
         if (mode == "详情") {
             QString description = item->data(Qt::UserRole + 1).toString();

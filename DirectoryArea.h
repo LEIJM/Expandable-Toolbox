@@ -32,6 +32,7 @@ private slots:
     void onFolderContextMenuRequested(const QPoint &pos);
     void onFoldersReordered();
 private:
+    void adjustWidthToContents();
     QWidget *contentWidget;
     QScrollArea *scrollArea;
     QListWidget *folderListWidget; // 用于显示和排序文件夹

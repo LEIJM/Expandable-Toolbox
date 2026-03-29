@@ -2,9 +2,12 @@
 #pragma once
 #include <QMainWindow>
 #include <QLabel>
+#include <QtGlobal>
 
 class DirectoryArea;
 class FunctionArea;
+class QDialog;
+class QTimer;
 
 class MainWindow : public QMainWindow {
 Q_OBJECT
@@ -17,9 +20,18 @@ public:
 
 private slots:
     void showAboutDialog();
+    void showSystemMonitorDialog();
+    void updateSystemMonitorInfo();
 
 private:
     DirectoryArea *directoryArea;
     FunctionArea *functionArea;
     QLabel *welcomeLabel;
+    QLabel *systemMonitorLabel;
+    QDialog *systemMonitorDialog;
+    QLabel *systemMonitorContentLabel;
+    QTimer *systemMonitorTimer;
+    quint64 lastIdleTime;
+    quint64 lastKernelTime;
+    quint64 lastUserTime;
 };

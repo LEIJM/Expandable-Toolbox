@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QProcess>
+#include <QFontMetrics>
 #include "DirectoryArea.h"
 
 DirectoryArea::DirectoryArea(QWidget *parent)
@@ -82,6 +83,8 @@ DirectoryArea::DirectoryArea(QWidget *parent)
     folderListWidget->setDropIndicatorShown(true);
     folderListWidget->setDragDropMode(QAbstractItemView::InternalMove);
     folderListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+    folderListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    folderListWidget->setTextElideMode(Qt::ElideNone);
     
     // 连接拖放完成信号
     connect(folderListWidget->model(), &QAbstractItemModel::rowsMoved, this, &DirectoryArea::onFoldersReordered);
@@ -202,6 +205,21 @@ void DirectoryArea::refreshFolders() {
     
     // 不再需要添加弹性空间，QListWidget已经处理了项目的布局
     // layout->addStretch(); // 这行代码已被移除，因为我们使用QListWidget而不是QVBoxLayout
+    adjustWidthToContents();
+}
+
+void DirectoryArea::adjustWidthToContents() {
+    QFontMetrics metrics(folderListWidget->font());
+    int maxTextWidth = 0;
+    for (int i = 0; i < folderListWidget->count(); i++) {
+        QListWidgetItem *item = folderListWidget->item(i);
+        maxTextWidth = qMax(maxTextWidth, metrics.horizontalAdvance(item->text()));
+    }
+    int requiredWidth = qBound(180, maxTextWidth + 90, 520);
+    setMinimumWidth(requiredWidth);
+    if (width() < requiredWidth) {
+        resize(requiredWidth, height());
+    }
 }
 
 bool DirectoryArea::selectFirstFolder() {
@@ -439,6 +457,7 @@ void DirectoryArea::onRenameFolderClicked() {
             
             // 保存更新后的顺序
             onFoldersReordered();
+            adjustWidthToContents();
             
             // 发出信号，通知选中了新的文件夹
             emit folderSelected(newName);

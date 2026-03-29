@@ -19,9 +19,17 @@
 #include <QPropertyAnimation>
 #include <QSysInfo>
 #include <QFrame>
+#include <QTimer>
+#include <QTextBrowser>
+#include <QStorageInfo>
+#include <QProcess>
+#include <QDateTime>
+#include <QProcessEnvironment>
+#include <windows.h>
 
 MainWindow::MainWindow(QWidget *parent)
-        : QMainWindow(parent) {
+        : QMainWindow(parent), systemMonitorDialog(nullptr), systemMonitorContentLabel(nullptr), systemMonitorTimer(nullptr),
+          lastIdleTime(0), lastKernelTime(0), lastUserTime(0) {
     // 设置窗口标题和大小
     setWindowTitle("Expandable Toolbox");
     resize(900, 650);
@@ -71,9 +79,11 @@ MainWindow::MainWindow(QWidget *parent)
     bar->addPermanentWidget(welcomeLabel, 0); // 0表示不伸展
     
     // 创建临时消息区域（右侧）
-    QLabel* messageLabel = new QLabel("就绪");
-    messageLabel->setStyleSheet("padding: 2px 8px; color: #555555;");
-    bar->addWidget(messageLabel, 1); // 1表示伸展填充可用空间
+    systemMonitorLabel = new QLabel("系统资源");
+    systemMonitorLabel->setStyleSheet("padding: 2px 8px; color: #1976d2; text-decoration: underline;");
+    systemMonitorLabel->setToolTip("点击查看硬件配置与实时状态");
+    systemMonitorLabel->setCursor(Qt::PointingHandCursor);
+    bar->addWidget(systemMonitorLabel, 1);
     
     // 将状态栏传递给功能区
     functionArea->setStatusBar(bar);
@@ -82,6 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(welcomeLabel, &QLabel::linkActivated, this, &MainWindow::showAboutDialog);
     // 由于QLabel默认不处理鼠标事件，我们需要安装事件过滤器
     welcomeLabel->installEventFilter(this);
+    systemMonitorLabel->installEventFilter(this);
     welcomeLabel->setCursor(Qt::PointingHandCursor);
 }
 
@@ -258,10 +269,152 @@ void MainWindow::showAboutDialog() {
     aboutDialog->exec();
 }
 
+void MainWindow::showSystemMonitorDialog() {
+    if (!systemMonitorDialog) {
+        systemMonitorDialog = new QDialog(this);
+        systemMonitorDialog->setWindowTitle("系统资源监控");
+        systemMonitorDialog->resize(680, 520);
+        systemMonitorDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+
+        QVBoxLayout *layout = new QVBoxLayout(systemMonitorDialog);
+        layout->setContentsMargins(16, 16, 16, 12);
+        layout->setSpacing(10);
+
+        systemMonitorContentLabel = new QLabel(systemMonitorDialog);
+        systemMonitorContentLabel->setTextFormat(Qt::RichText);
+        systemMonitorContentLabel->setWordWrap(true);
+        systemMonitorContentLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        systemMonitorContentLabel->setStyleSheet("font-size: 10pt; color: #2c3e50; background-color: #ffffff; border: 1px solid #dcdcdc; border-radius: 6px; padding: 10px;");
+        layout->addWidget(systemMonitorContentLabel, 1);
+
+        QHBoxLayout *buttonLayout = new QHBoxLayout();
+        buttonLayout->addStretch();
+        QPushButton *closeButton = new QPushButton("关闭", systemMonitorDialog);
+        closeButton->setCursor(Qt::PointingHandCursor);
+        connect(closeButton, &QPushButton::clicked, systemMonitorDialog, &QDialog::close);
+        buttonLayout->addWidget(closeButton);
+        layout->addLayout(buttonLayout);
+
+        systemMonitorTimer = new QTimer(systemMonitorDialog);
+        systemMonitorTimer->setInterval(1500);
+        connect(systemMonitorTimer, &QTimer::timeout, this, &MainWindow::updateSystemMonitorInfo);
+        connect(systemMonitorDialog, &QDialog::finished, this, [this]() {
+            if (systemMonitorTimer) {
+                systemMonitorTimer->stop();
+            }
+        });
+    }
+
+    updateSystemMonitorInfo();
+    if (systemMonitorTimer) {
+        systemMonitorTimer->start();
+    }
+    systemMonitorDialog->show();
+    systemMonitorDialog->raise();
+    systemMonitorDialog->activateWindow();
+}
+
+void MainWindow::updateSystemMonitorInfo() {
+    if (!systemMonitorContentLabel) {
+        return;
+    }
+
+    QString cpuName = qEnvironmentVariable("PROCESSOR_IDENTIFIER");
+    if (cpuName.isEmpty()) {
+        cpuName = QSysInfo::currentCpuArchitecture();
+    }
+
+    FILETIME idleTime;
+    FILETIME kernelTime;
+    FILETIME userTime;
+    GetSystemTimes(&idleTime, &kernelTime, &userTime);
+    auto toUInt64 = [](const FILETIME &ft) -> quint64 {
+        ULARGE_INTEGER uli;
+        uli.LowPart = ft.dwLowDateTime;
+        uli.HighPart = ft.dwHighDateTime;
+        return uli.QuadPart;
+    };
+    quint64 currentIdle = toUInt64(idleTime);
+    quint64 currentKernel = toUInt64(kernelTime);
+    quint64 currentUser = toUInt64(userTime);
+    double cpuUsage = 0.0;
+    if (lastKernelTime != 0 && lastUserTime != 0) {
+        quint64 systemDelta = (currentKernel - lastKernelTime) + (currentUser - lastUserTime);
+        quint64 idleDelta = currentIdle - lastIdleTime;
+        if (systemDelta > 0 && systemDelta >= idleDelta) {
+            cpuUsage = (double)(systemDelta - idleDelta) * 100.0 / (double)systemDelta;
+        }
+    }
+    lastIdleTime = currentIdle;
+    lastKernelTime = currentKernel;
+    lastUserTime = currentUser;
+
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    GlobalMemoryStatusEx(&memStatus);
+    double memTotalGB = memStatus.ullTotalPhys / 1024.0 / 1024.0 / 1024.0;
+    double memAvailGB = memStatus.ullAvailPhys / 1024.0 / 1024.0 / 1024.0;
+    double memUsedGB = memTotalGB - memAvailGB;
+    double memUsage = memStatus.dwMemoryLoad;
+
+    QStorageInfo systemDisk = QStorageInfo::root();
+    qint64 diskTotal = systemDisk.bytesTotal();
+    qint64 diskFree = systemDisk.bytesAvailable();
+    double diskTotalGB = diskTotal / 1024.0 / 1024.0 / 1024.0;
+    double diskUsedGB = (diskTotal - diskFree) / 1024.0 / 1024.0 / 1024.0;
+    double diskUsage = diskTotal > 0 ? (double)(diskTotal - diskFree) * 100.0 / (double)diskTotal : 0.0;
+
+    QString gpuName = "-";
+    QString gpuUsage = "-";
+    QProcess gpuInfoProcess;
+    gpuInfoProcess.start("powershell", QStringList() << "-NoProfile" << "-Command" << "Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name");
+    if (gpuInfoProcess.waitForFinished(800)) {
+        QString output = QString::fromLocal8Bit(gpuInfoProcess.readAllStandardOutput()).trimmed();
+        if (!output.isEmpty()) {
+            gpuName = output;
+        }
+    }
+    QProcess gpuUsageProcess;
+    gpuUsageProcess.start("powershell", QStringList() << "-NoProfile" << "-Command" << "$v=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | Measure-Object -Property CookedValue -Sum; [math]::Round($v.Sum,1)");
+    if (gpuUsageProcess.waitForFinished(900)) {
+        QString output = QString::fromLocal8Bit(gpuUsageProcess.readAllStandardOutput()).trimmed();
+        if (!output.isEmpty()) {
+            gpuUsage = output + "%";
+        }
+    }
+
+    QString text = QString(
+        "<p><b>更新时间：</b>%1</p>"
+        "<p><b>CPU：</b>%2<br><b>实时占用：</b>%3%</p>"
+        "<p><b>GPU：</b>%4<br><b>实时占用：</b>%5</p>"
+        "<p><b>内存：</b>%6 / %7 GB<br><b>实时占用：</b>%8%</p>"
+        "<p><b>硬盘（系统盘 %9）：</b>%10 / %11 GB<br><b>实时占用：</b>%12%</p>"
+        "<p><b>系统：</b>%13</p>")
+        .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
+        .arg(cpuName.toHtmlEscaped())
+        .arg(QString::number(cpuUsage, 'f', 1))
+        .arg(gpuName.toHtmlEscaped())
+        .arg(gpuUsage.toHtmlEscaped())
+        .arg(QString::number(memUsedGB, 'f', 1))
+        .arg(QString::number(memTotalGB, 'f', 1))
+        .arg(QString::number(memUsage, 'f', 1))
+        .arg(systemDisk.rootPath().toHtmlEscaped())
+        .arg(QString::number(diskUsedGB, 'f', 1))
+        .arg(QString::number(diskTotalGB, 'f', 1))
+        .arg(QString::number(diskUsage, 'f', 1))
+        .arg(QSysInfo::prettyProductName().toHtmlEscaped());
+
+    systemMonitorContentLabel->setText(text);
+}
+
 // 事件过滤器，处理标签的鼠标点击事件
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     if (obj == welcomeLabel && event->type() == QEvent::MouseButtonRelease) {
         showAboutDialog();
+        return true;
+    }
+    if (obj == systemMonitorLabel && event->type() == QEvent::MouseButtonRelease) {
+        showSystemMonitorDialog();
         return true;
     }
     return QMainWindow::eventFilter(obj, event);
