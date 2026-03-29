@@ -1,10 +1,10 @@
 // DirectoryArea.h
+#pragma once
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QMap>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QWidget>
 #include <QListWidget>
 #include <QFile>
 #include <QTextStream>

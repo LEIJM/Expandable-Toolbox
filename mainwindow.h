@@ -1,4 +1,5 @@
 // MainWindow.h
+#pragma once
 #include <QMainWindow>
 #include <QLabel>
 

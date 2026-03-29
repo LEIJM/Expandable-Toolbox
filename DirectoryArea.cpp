@@ -11,7 +11,7 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QFileDialog>
-#include "directoryarea.h"
+#include "DirectoryArea.h"
 
 DirectoryArea::DirectoryArea(QWidget *parent)
         : QWidget(parent), selectedButton(nullptr) {

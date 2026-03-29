@@ -1,8 +1,8 @@
 // MainWindow.cpp
 #include <QApplication>
 #include "mainwindow.h"
-#include "directoryarea.h"
-#include "functionarea.h"
+#include "DirectoryArea.h"
+#include "FunctionArea.h"
 #include <QLabel>
 #include <QFile>
 #include <QTextStream>
