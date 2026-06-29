@@ -27,6 +27,7 @@
 #include <QTreeWidget>
 #include <QDialogButtonBox>
 #include <QCheckBox>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <windows.h>
 #include <shellapi.h>
@@ -77,6 +78,10 @@ public:
         top->addWidget(recursiveCheck, 0);
         outer->addLayout(top);
 
+        previewLabel = new QLabel(this);
+        previewLabel->setWordWrap(true);
+        outer->addWidget(previewLabel);
+
         QSplitter *split = new QSplitter(Qt::Horizontal, this);
         split->setHandleWidth(1);
 
@@ -96,11 +101,11 @@ public:
         rightLayout->addWidget(filesList, 1);
 
         QHBoxLayout *ops = new QHBoxLayout();
-        QPushButton *selectAll = new QPushButton("全选", right);
-        QPushButton *selectNone = new QPushButton("全不选", right);
+        selectAllButton = new QPushButton("全选", right);
+        selectNoneButton = new QPushButton("全不选", right);
         ops->addStretch();
-        ops->addWidget(selectAll);
-        ops->addWidget(selectNone);
+        ops->addWidget(selectAllButton);
+        ops->addWidget(selectNoneButton);
         rightLayout->addLayout(ops);
 
         split->addWidget(tree);
@@ -124,8 +129,9 @@ public:
         connect(tree, &QTreeWidget::currentItemChanged, this, &FolderFilterDialog::onCurrentDirChanged);
         connect(modeCombo, &QComboBox::currentIndexChanged, this, &FolderFilterDialog::onModeChanged);
         connect(recursiveCheck, &QCheckBox::toggled, this, &FolderFilterDialog::onRecursiveToggled);
-        connect(selectAll, &QPushButton::clicked, this, &FolderFilterDialog::onSelectAll);
-        connect(selectNone, &QPushButton::clicked, this, &FolderFilterDialog::onSelectNone);
+        connect(selectAllButton, &QPushButton::clicked, this, &FolderFilterDialog::onSelectAll);
+        connect(selectNoneButton, &QPushButton::clicked, this, &FolderFilterDialog::onSelectNone);
+        connect(filesList, &QListWidget::itemChanged, this, &FolderFilterDialog::onFileItemChanged);
 
         loadFromMetadata();
         buildTree();
@@ -169,6 +175,9 @@ private:
     QComboBox *modeCombo;
     QCheckBox *recursiveCheck;
     QListWidget *filesList;
+    QLabel *previewLabel;
+    QPushButton *selectAllButton;
+    QPushButton *selectNoneButton;
 
     QString currentRelDir;
     QString toolsDirAbs;
@@ -274,6 +283,7 @@ private:
         const QString absDir = QDir(toolsDirAbs).absoluteFilePath(relDir.isEmpty() ? "." : relDir);
         QDir dir(absDir);
         if (!dir.exists()) {
+            updatePreviewUi();
             return;
         }
 
@@ -287,6 +297,75 @@ private:
             item->setData(Qt::UserRole, fi.fileName());
             item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
             item->setCheckState(rule.files.contains(fi.fileName()) ? Qt::Checked : Qt::Unchecked);
+        }
+        updatePreviewUi();
+    }
+
+    void updatePreviewUi() {
+        const QString mode = modeCombo->currentData().toString();
+        const int total = filesList->count();
+        int checked = 0;
+        for (int i = 0; i < total; ++i) {
+            if (filesList->item(i)->checkState() == Qt::Checked) {
+                checked++;
+            }
+        }
+
+        int willShow = total;
+        if (mode == "include") {
+            willShow = checked;
+        } else if (mode == "exclude") {
+            willShow = total - checked;
+        }
+        const int willHide = total - willShow;
+
+        QString extra;
+        if (mode == "all") {
+            extra = "当前为“显示全部”，勾选不影响结果。";
+        } else if (mode == "include") {
+            extra = "勾选 = 显示；不勾选 = 隐藏。";
+        } else if (mode == "exclude") {
+            extra = "勾选 = 隐藏；不勾选 = 显示。";
+        }
+
+        previewLabel->setText(
+            QString("模式：%1。已勾选 %2/%3。保存后：显示 %4，隐藏 %5。%6")
+                .arg(modeCombo->currentText())
+                .arg(checked)
+                .arg(total)
+                .arg(willShow)
+                .arg(willHide)
+                .arg(extra));
+
+        filesList->setEnabled(true);
+        selectAllButton->setEnabled(true);
+        selectNoneButton->setEnabled(true);
+
+        const QColor visibleColor = palette().color(QPalette::Active, QPalette::Text);
+        const QColor hiddenColor = palette().color(QPalette::Disabled, QPalette::Text);
+        for (int i = 0; i < total; ++i) {
+            QListWidgetItem *item = filesList->item(i);
+            const bool isChecked = (item->checkState() == Qt::Checked);
+            bool visible = true;
+            if (mode == "include") {
+                visible = isChecked;
+            } else if (mode == "exclude") {
+                visible = !isChecked;
+            }
+
+            if (mode == "all") {
+                item->setForeground(QBrush(visibleColor));
+                QFont f = item->font();
+                f.setStrikeOut(false);
+                item->setFont(f);
+                item->setToolTip("当前为“显示全部”，勾选不影响结果");
+            } else {
+                item->setForeground(QBrush(visible ? visibleColor : hiddenColor));
+                QFont f = item->font();
+                f.setStrikeOut(!visible);
+                item->setFont(f);
+                item->setToolTip(visible ? "保存后：将显示" : "保存后：将隐藏");
+            }
         }
     }
 
@@ -302,22 +381,36 @@ private slots:
 
     void onModeChanged() {
         persistCurrentDirEdits();
+        updatePreviewUi();
     }
 
     void onRecursiveToggled() {
         persistCurrentDirEdits();
+        updatePreviewUi();
     }
 
     void onSelectAll() {
+        const QSignalBlocker blocker(filesList);
         for (int i = 0; i < filesList->count(); ++i) {
             filesList->item(i)->setCheckState(Qt::Checked);
         }
+        persistCurrentDirEdits();
+        updatePreviewUi();
     }
 
     void onSelectNone() {
+        const QSignalBlocker blocker(filesList);
         for (int i = 0; i < filesList->count(); ++i) {
             filesList->item(i)->setCheckState(Qt::Unchecked);
         }
+        persistCurrentDirEdits();
+        updatePreviewUi();
+    }
+
+    void onFileItemChanged(QListWidgetItem *item) {
+        Q_UNUSED(item);
+        persistCurrentDirEdits();
+        updatePreviewUi();
     }
 };
 }
@@ -928,12 +1021,21 @@ void FunctionArea::showFolderFilterRulesDialog(const QString &folderName) {
     }
 
     QJsonObject metadata = loadMetadataForUi(folderName);
-    metadata["filters"] = dialog.resultFiltersObject();
+    const QJsonObject filters = dialog.resultFiltersObject();
+    metadata["filters"] = filters;
     saveMetadataForUi(folderName, metadata);
     folderCache.remove(folderName);
 
     if (currentFolderName == folderName) {
-        scanFolderForShortcuts(folderName);
+        showShortcuts(folderName);
+    }
+
+    if (statusBar) {
+        statusBar->showMessage(
+            QString("过滤规则已保存：%1 条%2")
+                .arg(filters.size())
+                .arg(currentFolderName == folderName ? "（已刷新）" : ""),
+            3000);
     }
 }
 
