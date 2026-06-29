@@ -301,7 +301,7 @@ void FunctionArea::refreshItemsForViewMode() {
 // 加载支持的文件后缀
 void FunctionArea::loadFileExtensions() {
     // 默认支持的文件后缀
-    supportedExtensions = QStringList() << "exe" << "cmd";
+    supportedExtensions = QStringList() << "exe" << "cmd" << "bat";
     
     // 从配置文件加载自定义后缀
     QFile file("tools/extensions.cfg");
@@ -311,7 +311,21 @@ void FunctionArea::loadFileExtensions() {
         file.close();
         
         if (!content.isEmpty()) {
-            supportedExtensions = content.split(";", Qt::SkipEmptyParts);
+            QStringList parsed = content.split(";", Qt::SkipEmptyParts);
+            QStringList normalized;
+            normalized.reserve(parsed.size());
+            for (QString ext : parsed) {
+                ext = ext.trimmed().toLower();
+                if (ext.startsWith(".")) {
+                    ext = ext.mid(1);
+                }
+                if (!ext.isEmpty() && !normalized.contains(ext)) {
+                    normalized.append(ext);
+                }
+            }
+            if (!normalized.isEmpty()) {
+                supportedExtensions = normalized;
+            }
         }
     }
 }
@@ -419,9 +433,21 @@ void FunctionArea::cleanupProcesses() {
 }
 
 // 启动进程
-bool FunctionArea::startProcess(const QString &exeFilePath, const QStringList &args) {
+bool FunctionArea::startProcess(const QString &exeFilePath, const QString &arguments) {
     QFileInfo fileInfo(exeFilePath);
-    bool started = QProcess::startDetached(exeFilePath, args, fileInfo.absolutePath());
+    std::wstring wExePath = exeFilePath.toStdWString();
+    std::wstring wArgs = arguments.toStdWString();
+    std::wstring wDir = fileInfo.absolutePath().toStdWString();
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.lpVerb = L"open";
+    sei.lpFile = wExePath.c_str();
+    sei.lpParameters = wArgs.empty() ? nullptr : wArgs.c_str();
+    sei.lpDirectory = wDir.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+
+    BOOL ret = ShellExecuteExW(&sei);
+    bool started = (ret == TRUE);
     if (started && statusBar) {
         statusBar->showMessage(QString("已启动工具: %1").arg(fileInfo.fileName()), 3000);
     }
@@ -453,6 +479,8 @@ void FunctionArea::createShortcutItem(const ShortcutEntry &entry, int count) {
     item->setData(Qt::UserRole + 3, entry.arguments);
     item->setData(Qt::UserRole + 4, entry.runAsAdmin);
     item->setData(Qt::UserRole + 5, entry.isFavorite);
+    item->setData(Qt::UserRole + 6, entry.doubleClickAction);
+    item->setData(Qt::UserRole + 7, entry.editorPath);
     
     // 设置交替背景色
     if (count % 2 == 0) {
@@ -718,6 +746,8 @@ QList<FunctionArea::ShortcutEntry> FunctionArea::scanFolderWorker(const QString 
             entry.arguments = itemMeta.contains("arguments") ? itemMeta["arguments"].toString() : "";
             entry.runAsAdmin = itemMeta.contains("runAsAdmin") ? itemMeta["runAsAdmin"].toBool() : false;
             entry.isFavorite = itemMeta.contains("isFavorite") ? itemMeta["isFavorite"].toBool() : false;
+            entry.doubleClickAction = itemMeta.contains("doubleClickAction") ? itemMeta["doubleClickAction"].toString() : "open";
+            entry.editorPath = itemMeta.contains("editorPath") ? itemMeta["editorPath"].toString() : "";
             
             scannedFiles.append(entry);
         }
@@ -805,6 +835,8 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
     if (item) {
         // 选中当前项
         shortcuts->setCurrentItem(item);
+        QString itemFilePath = item->data(Qt::UserRole).toString();
+        if (!itemFilePath.isEmpty()) {
         
         // 添加重命名选项
         QAction *renameAction = menu.addAction("重命名工具");
@@ -817,6 +849,61 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
         // 添加启动参数选项
         QAction *argsAction = menu.addAction("启动参数");
         connect(argsAction, &QAction::triggered, this, &FunctionArea::onEditArguments);
+
+        QMenu *doubleClickMenu = menu.addMenu("双击行为");
+        QFileInfo fileInfo(itemFilePath);
+        QString currentAction = item->data(Qt::UserRole + 6).toString();
+        if (currentAction.isEmpty()) currentAction = "open";
+        QString currentEditor = item->data(Qt::UserRole + 7).toString();
+
+        QAction *actionOpen = doubleClickMenu->addAction("运行（系统打开）");
+        actionOpen->setCheckable(true);
+        actionOpen->setChecked(currentAction == "open");
+        connect(actionOpen, &QAction::triggered, this, [this, item, fileInfo]() {
+            QJsonObject data;
+            data["doubleClickAction"] = "open";
+            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            item->setData(Qt::UserRole + 6, "open");
+        });
+
+        QAction *actionEditNotepad = doubleClickMenu->addAction("编辑（记事本）");
+        actionEditNotepad->setCheckable(true);
+        actionEditNotepad->setChecked(currentAction == "edit" && currentEditor.isEmpty());
+        connect(actionEditNotepad, &QAction::triggered, this, [this, item, fileInfo]() {
+            QJsonObject data;
+            data["doubleClickAction"] = "edit";
+            data["editorPath"] = "";
+            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            item->setData(Qt::UserRole + 6, "edit");
+            item->setData(Qt::UserRole + 7, "");
+        });
+
+        QAction *actionEditCustom = doubleClickMenu->addAction("编辑（自定义编辑器）");
+        actionEditCustom->setCheckable(true);
+        actionEditCustom->setChecked(currentAction == "edit" && !currentEditor.isEmpty());
+        actionEditCustom->setEnabled(!currentEditor.isEmpty());
+        connect(actionEditCustom, &QAction::triggered, this, [this, item, fileInfo, currentEditor]() {
+            QJsonObject data;
+            data["doubleClickAction"] = "edit";
+            data["editorPath"] = currentEditor;
+            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            item->setData(Qt::UserRole + 6, "edit");
+            item->setData(Qt::UserRole + 7, currentEditor);
+        });
+
+        QAction *actionChooseEditor = doubleClickMenu->addAction("选择编辑器...");
+        connect(actionChooseEditor, &QAction::triggered, this, [this, item, fileInfo]() {
+            QString editorPath = QFileDialog::getOpenFileName(this, "选择编辑器", "", "可执行文件 (*.exe);;所有文件 (*.*)");
+            if (editorPath.isEmpty()) {
+                return;
+            }
+            QJsonObject data;
+            data["doubleClickAction"] = "edit";
+            data["editorPath"] = editorPath;
+            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            item->setData(Qt::UserRole + 6, "edit");
+            item->setData(Qt::UserRole + 7, editorPath);
+        });
         
         // 添加管理员权限选项
         bool isAdmin = item->data(Qt::UserRole + 4).toBool();
@@ -836,6 +923,7 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
         connect(deleteAction, &QAction::triggered, this, &FunctionArea::onDeleteTool);
         
         menu.addSeparator();
+        }
     }
     
     // 添加工具选项
@@ -1167,11 +1255,23 @@ void FunctionArea::onManageFileExtensions() {
         
         // 移除空白字符并转为小写
         for (int i = 0; i < newExtensions.size(); ++i) {
-            newExtensions[i] = newExtensions[i].trimmed().toLower();
+            QString ext = newExtensions[i].trimmed().toLower();
+            if (ext.startsWith(".")) {
+                ext = ext.mid(1);
+            }
+            newExtensions[i] = ext;
+        }
+
+        QStringList deduped;
+        deduped.reserve(newExtensions.size());
+        for (const QString &ext : newExtensions) {
+            if (!ext.isEmpty() && !deduped.contains(ext)) {
+                deduped.append(ext);
+            }
         }
         
         // 保存新的后缀列表
-        saveFileExtensions(newExtensions);
+        saveFileExtensions(deduped);
         
         // 清除所有文件夹的缓存，确保下次访问时重新扫描
         folderCache.clear();
@@ -1226,6 +1326,11 @@ void FunctionArea::onShortcutsReordered() {
                 entry.displayName = item->text();
             }
             entry.description = item->data(Qt::UserRole + 1).toString();
+            entry.arguments = item->data(Qt::UserRole + 3).toString();
+            entry.runAsAdmin = item->data(Qt::UserRole + 4).toBool();
+            entry.isFavorite = item->data(Qt::UserRole + 5).toBool();
+            entry.doubleClickAction = item->data(Qt::UserRole + 6).toString();
+            entry.editorPath = item->data(Qt::UserRole + 7).toString();
             orderedEntries.append(entry);
         }
         
@@ -1266,30 +1371,61 @@ void FunctionArea::onShortcutDoubleClicked(QListWidgetItem *item) {
     
     // 从数据角色获取启动参数
     QString argumentsStr = item->data(Qt::UserRole + 3).toString();
-    QStringList args = QProcess::splitCommand(argumentsStr);
-    
+
     // 是否以管理员权限运行
     bool runAsAdmin = item->data(Qt::UserRole + 4).toBool();
-    
+
+    QString doubleClickAction = item->data(Qt::UserRole + 6).toString();
+    if (doubleClickAction.isEmpty()) doubleClickAction = "open";
+    QString editorPath = item->data(Qt::UserRole + 7).toString();
+
+    if (doubleClickAction == "edit") {
+        QString editorExe = editorPath.isEmpty() ? "notepad.exe" : editorPath;
+        if (!editorPath.isEmpty() && !QFile::exists(editorPath)) {
+            editorExe = "notepad.exe";
+        }
+
+        QString targetFile = QDir::toNativeSeparators(exeFilePath);
+        QString params = QString("\"%1\"").arg(targetFile);
+
+        std::wstring wEditorExe = editorExe.toStdWString();
+        std::wstring wParams = params.toStdWString();
+        std::wstring wDir = fileInfo.absolutePath().toStdWString();
+
+        SHELLEXECUTEINFOW sei = { sizeof(sei) };
+        sei.lpVerb = runAsAdmin ? L"runas" : L"open";
+        sei.lpFile = wEditorExe.c_str();
+        sei.lpParameters = wParams.empty() ? nullptr : wParams.c_str();
+        sei.lpDirectory = wDir.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+
+        if (!ShellExecuteExW(&sei)) {
+            QMessageBox::critical(this, "启动工具", "无法打开编辑器。");
+        } else {
+            emit shortcutSelected(fileInfo.fileName());
+        }
+        return;
+    }
+
     if (runAsAdmin) {
         // 在 Windows 上使用 ShellExecuteEx 以管理员身份启动
         std::wstring wExePath = exeFilePath.toStdWString();
         std::wstring wArgs = argumentsStr.toStdWString();
-        
+
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
         sei.lpVerb = L"runas";
         sei.lpFile = wExePath.c_str();
-        sei.lpParameters = wArgs.c_str();
+        sei.lpParameters = wArgs.empty() ? nullptr : wArgs.c_str();
         sei.nShow = SW_SHOWNORMAL;
-        
+
         if (!ShellExecuteExW(&sei)) {
             QMessageBox::critical(this, "启动工具", "无法以管理员身份启动工具。");
             return;
         }
     } else {
-        // 使用现有进程管理逻辑启动
-        if (!startProcess(exeFilePath, args)) {
-            QMessageBox::critical(this, "启动工具", 
+        // 使用 ShellExecuteExW 启动，与资源管理器双击效果一致
+        if (!startProcess(exeFilePath, argumentsStr)) {
+            QMessageBox::critical(this, "启动工具",
                 QString("无法启动工具: %1\n\n请检查文件权限或是否被其他程序占用。").arg(fileInfo.fileName()));
         } else {
             emit shortcutSelected(fileInfo.fileName());

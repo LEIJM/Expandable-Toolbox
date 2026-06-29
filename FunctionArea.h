@@ -35,6 +35,8 @@ public:
         QString arguments;
         bool runAsAdmin = false;
         bool isFavorite = false;
+        QString doubleClickAction = "open";
+        QString editorPath;
     };
 
     FunctionArea(QWidget *parent = nullptr);
@@ -122,7 +124,7 @@ private:
     // 管理进程
     void manageProcesses();
     // 启动进程
-    bool startProcess(const QString &exeFilePath, const QStringList &args = QStringList());
+    bool startProcess(const QString &exeFilePath, const QString &arguments = QString());
     // 清理已结束的进程
     void cleanupProcesses();
     
