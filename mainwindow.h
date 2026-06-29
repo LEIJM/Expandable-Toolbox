@@ -8,6 +8,7 @@
 
 #include <QFutureWatcher>
 #include <QProgressBar>
+#include <QDateTime>
 
 class DirectoryArea;
 class FunctionArea;
@@ -59,6 +60,8 @@ private:
     quint64 lastKernelTime;
     quint64 lastUserTime;
     QString cachedGpuName;
+    double cachedGpuUsage;
+    QDateTime lastGpuUsageUpdateAt;
     
     struct MonitorData {
         double cpuUsage = 0;

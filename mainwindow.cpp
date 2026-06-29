@@ -33,7 +33,7 @@
 MainWindow::MainWindow(QWidget *parent)
         : QMainWindow(parent), systemMonitorDialog(nullptr), systemMonitorContentLabel(nullptr), systemMonitorTimer(nullptr),
           cpuBar(nullptr), gpuBar(nullptr), memBar(nullptr), diskBar(nullptr),
-          lastIdleTime(0), lastKernelTime(0), lastUserTime(0) {
+          lastIdleTime(0), lastKernelTime(0), lastUserTime(0), cachedGpuUsage(0.0) {
     // 初始化监控结果监听器
     connect(&monitorDataWatcher, &QFutureWatcher<MainWindow::MonitorData>::finished, this, &MainWindow::handleMonitorDataReadyV2);
     
@@ -79,6 +79,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 连接信号和槽
     connect(directoryArea, &DirectoryArea::folderSelected, functionArea, &FunctionArea::showShortcuts);
+    connect(directoryArea, &DirectoryArea::folderFilterRulesRequested, functionArea, &FunctionArea::showFolderFilterRulesDialog);
     directoryArea->selectFirstFolder();
 
     // 创建状态栏
@@ -462,13 +463,26 @@ MainWindow::MonitorData MainWindow::collectMonitorDataV2() {
         }
     }
     
-    QProcess gpuUsageProcess;
-    gpuUsageProcess.start("powershell", QStringList() << "-NoProfile" << "-Command" << "$v=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | Measure-Object -Property CookedValue -Sum; [math]::Round($v.Sum,1)");
-    if (gpuUsageProcess.waitForFinished(1000)) {
-        QString output = QString::fromLocal8Bit(gpuUsageProcess.readAllStandardOutput()).trimmed();
-        if (!output.isEmpty()) {
-            data.gpuUsage = output.toDouble();
+    const QDateTime now = QDateTime::currentDateTime();
+    if (!lastGpuUsageUpdateAt.isValid() || lastGpuUsageUpdateAt.msecsTo(now) >= 10000) {
+        QProcess gpuUsageProcess;
+        gpuUsageProcess.start("powershell", QStringList() << "-NoProfile" << "-Command" << "$v=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | Measure-Object -Property CookedValue -Sum; [math]::Round($v.Sum,1)");
+        if (gpuUsageProcess.waitForFinished(1000)) {
+            QString output = QString::fromLocal8Bit(gpuUsageProcess.readAllStandardOutput()).trimmed();
+            bool ok = false;
+            double parsedUsage = output.toDouble(&ok);
+            if (ok) {
+                data.gpuUsage = parsedUsage;
+                cachedGpuUsage = parsedUsage;
+                lastGpuUsageUpdateAt = now;
+            } else {
+                data.gpuUsage = cachedGpuUsage;
+            }
+        } else {
+            data.gpuUsage = cachedGpuUsage;
         }
+    } else {
+        data.gpuUsage = cachedGpuUsage;
     }
 
     data.htmlContent = QString(
@@ -478,7 +492,7 @@ MainWindow::MonitorData MainWindow::collectMonitorDataV2() {
         "<p><b>内存：</b>%4 / %5 GB</p>"
         "<p><b>硬盘（系统盘 %6）：</b>%7 / %8 GB</p>"
         "<p><b>系统：</b>%9</p>")
-        .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
+        .arg(now.toString("yyyy-MM-dd hh:mm:ss"))
         .arg(cpuName.toHtmlEscaped())
         .arg(gpuName.toHtmlEscaped())
         .arg(QString::number(memUsedGB, 'f', 1))

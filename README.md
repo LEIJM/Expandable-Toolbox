@@ -1,6 +1,6 @@
 # Expandable Toolbox（可扩展工具箱）
 
-![版本](https://img.shields.io/badge/版本-2.2.0-blue)
+![版本](https://img.shields.io/badge/版本-2.3.0-blue)
 ![Qt版本](https://img.shields.io/badge/Qt-6.7.2-green)
 ![平台](https://img.shields.io/badge/平台-Windows-lightgrey)
 ![许可证](https://img.shields.io/badge/许可证-MIT-orange)

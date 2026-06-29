@@ -2,7 +2,6 @@
 #pragma once
 #include <QWidget>
 #include <QVBoxLayout>
-#include <QMap>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QListWidget>
@@ -15,6 +14,7 @@ Q_OBJECT
 
 signals:
     void folderSelected(const QString &folderName);
+    void folderFilterRulesRequested(const QString &folderName);
 
 public:
     DirectoryArea(QWidget *parent = nullptr);
@@ -23,7 +23,6 @@ public:
     void refreshFolders();
     bool selectFirstFolder();
 private slots:
-    void onFolderButtonClicked();
     void onFolderItemClicked(QListWidgetItem *item);
     void onAddFolderClicked();
     void onRenameFolderClicked();
@@ -36,6 +35,4 @@ private:
     QWidget *contentWidget;
     QScrollArea *scrollArea;
     QListWidget *folderListWidget; // 用于显示和排序文件夹
-    QMap<QString, QPushButton*> folderButtons; // 存储文件夹名称和对应的按钮（兼容现有代码）
-    QPushButton *selectedButton; // 当前选中的按钮
 };

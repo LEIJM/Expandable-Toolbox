@@ -16,7 +16,7 @@
 #include "DirectoryArea.h"
 
 DirectoryArea::DirectoryArea(QWidget *parent)
-        : QWidget(parent), selectedButton(nullptr) {
+        : QWidget(parent) {
     // 创建标题标签和操作按钮区域
     QWidget *headerWidget = new QWidget(this);
     QHBoxLayout *headerLayout = new QHBoxLayout(headerWidget);
@@ -42,7 +42,8 @@ DirectoryArea::DirectoryArea(QWidget *parent)
         "}"
         "QPushButton:pressed {"
         "    background-color: #aed6f1;"
-        "}");
+        "}"
+    );
     
     connect(addButton, &QPushButton::clicked, this, &DirectoryArea::onAddFolderClicked);
     
@@ -75,7 +76,8 @@ DirectoryArea::DirectoryArea(QWidget *parent)
         "}"
         "QListWidget::item:hover {"
         "    background-color: #f5f5f5;"
-        "}");
+        "}"
+    );
     
     // 启用拖放功能
     folderListWidget->setDragEnabled(true);
@@ -131,7 +133,6 @@ DirectoryArea::DirectoryArea(QWidget *parent)
 void DirectoryArea::refreshFolders() {
     // 清除现有项目
     folderListWidget->clear();
-    folderButtons.clear();
     
     // 读取保存的顺序
     QStringList orderedFolders;
@@ -181,30 +182,16 @@ void DirectoryArea::refreshFolders() {
         item->setData(Qt::UserRole, folder); // 存储文件夹名称
         folderListWidget->addItem(item);
         
-        // 创建按钮（用于兼容现有代码）
-        QPushButton *button = new QPushButton(folder, this);
-        button->setVisible(false); // 隐藏按钮，因为我们使用列表项代替
-        button->setCheckable(true);
-        
-        // 尝试为按钮添加图标
+        // 尝试为列表项添加图标
         QString iconPath = "tools/" + folder + "/icon.png";
         if (QFile::exists(iconPath)) {
-            button->setIcon(QIcon(iconPath));
             item->setIcon(QIcon(iconPath));
         } else {
             // 使用默认文件夹图标
-            button->setIcon(QIcon::fromTheme("folder"));
             item->setIcon(QIcon::fromTheme("folder"));
         }
-        
-        button->setIconSize(QSize(20, 20));
-        
-        // 存储按钮（用于兼容现有代码）
-        folderButtons[folder] = button;
     }
     
-    // 不再需要添加弹性空间，QListWidget已经处理了项目的布局
-    // layout->addStretch(); // 这行代码已被移除，因为我们使用QListWidget而不是QVBoxLayout
     adjustWidthToContents();
 }
 
@@ -240,33 +227,8 @@ void DirectoryArea::onFolderItemClicked(QListWidgetItem *item) {
         // 获取文件夹名称
         QString folderName = item->text();
         
-        // 更新选中的按钮（兼容现有代码）
-        if (folderButtons.contains(folderName)) {
-            selectedButton = folderButtons[folderName];
-            selectedButton->setChecked(true);
-        }
-        
         // 发出信号，通知选中了哪个文件夹
         emit folderSelected(folderName);
-    }
-}
-
-// 保留此方法以兼容现有代码
-void DirectoryArea::onFolderButtonClicked() {
-    QPushButton *button = qobject_cast<QPushButton *>(sender());
-    if (button) {
-        // 取消其他按钮的选中状态
-        for (auto it = folderButtons.begin(); it != folderButtons.end(); ++it) {
-            if (it.value() != button) {
-                it.value()->setChecked(false);
-            }
-        }
-        
-        // 设置当前按钮为选中状态
-        button->setChecked(true);
-        selectedButton = button;
-        
-        emit folderSelected(button->text());
     }
 }
 
@@ -311,6 +273,12 @@ void DirectoryArea::onFolderContextMenuRequested(const QPoint &pos) {
         connect(renameAction, &QAction::triggered, this, &DirectoryArea::onRenameFolderClicked);
         QAction *openInExplorerAction = menu.addAction("在资源管理器中打开");
         connect(openInExplorerAction, &QAction::triggered, this, &DirectoryArea::onOpenFolderInExplorer);
+
+        menu.addSeparator();
+        QAction *filterRulesAction = menu.addAction("显示过滤规则...");
+        connect(filterRulesAction, &QAction::triggered, this, [this, folderName]() {
+            emit folderFilterRulesRequested(folderName);
+        });
         
         // 显示菜单
         menu.exec(folderListWidget->mapToGlobal(pos));
@@ -364,7 +332,7 @@ void DirectoryArea::onAddFolderClicked() {
     
     // 显示对话框
     bool ok = (dialog.exec() == QDialog::Accepted);
-    QString folderName = lineEdit->text();
+    QString folderName = lineEdit->text().trimmed();
     if (ok && !folderName.isEmpty()) {
         // 检查是否已存在同名文件夹
         QDir toolsDir("tools");
@@ -379,8 +347,13 @@ void DirectoryArea::onAddFolderClicked() {
             refreshFolders();
             
             // 选中新创建的文件夹
-            if (folderButtons.contains(folderName)) {
-                folderButtons[folderName]->click();
+            for (int i = 0; i < folderListWidget->count(); ++i) {
+                QListWidgetItem *newItem = folderListWidget->item(i);
+                if (newItem && newItem->text() == folderName) {
+                    folderListWidget->setCurrentItem(newItem);
+                    onFolderItemClicked(newItem);
+                    break;
+                }
             }
         } else {
             QMessageBox::critical(this, "添加分类", "创建分类文件夹失败。");
@@ -430,7 +403,7 @@ void DirectoryArea::onRenameFolderClicked() {
     
     // 显示对话框
     bool ok = (dialog.exec() == QDialog::Accepted);
-    QString newName = lineEdit->text();
+    QString newName = lineEdit->text().trimmed();
     
     if (ok && !newName.isEmpty() && newName != oldName) {
         // 检查是否已存在同名文件夹
@@ -446,15 +419,6 @@ void DirectoryArea::onRenameFolderClicked() {
             item->setText(newName);
             item->setData(Qt::UserRole, newName);
             
-            // 更新按钮映射（兼容现有代码）
-            if (folderButtons.contains(oldName)) {
-                QPushButton *button = folderButtons[oldName];
-                button->setText(newName);
-                folderButtons.remove(oldName);
-                folderButtons[newName] = button;
-                selectedButton = button;
-            }
-            
             // 保存更新后的顺序
             onFoldersReordered();
             adjustWidthToContents();
@@ -468,11 +432,9 @@ void DirectoryArea::onRenameFolderClicked() {
 }
 
 void DirectoryArea::onContextMenuRequested(const QPoint &pos) {
-    // 只有在没有选中按钮的情况下，才显示空白区域的右键菜单
-    if (!selectedButton || !selectedButton->underMouse()) {
-        QMenu menu(this);
-        QAction *addAction = menu.addAction("添加新分类");
-        connect(addAction, &QAction::triggered, this, &DirectoryArea::onAddFolderClicked);
-        menu.exec(mapToGlobal(pos));
-    }
+    // 显示空白区域的右键菜单
+    QMenu menu(this);
+    QAction *addAction = menu.addAction("添加新分类");
+    connect(addAction, &QAction::triggered, this, &DirectoryArea::onAddFolderClicked);
+    menu.exec(mapToGlobal(pos));
 }

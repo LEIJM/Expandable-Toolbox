@@ -24,17 +24,307 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QTreeWidget>
+#include <QDialogButtonBox>
+#include <QCheckBox>
+#include <QSplitter>
 #include <windows.h>
 #include <shellapi.h>
 
+namespace {
+struct FolderFilterRule {
+    QString mode;
+    QSet<QString> files;
+    bool recursive = false;
+};
+
+static QString normalizeRelDirKey(QString key) {
+    key = QDir::cleanPath(QDir::fromNativeSeparators(key));
+    if (key == "." || key == "./") {
+        return "";
+    }
+    return key;
+}
+
+static QString normalizePathKey(const QString &path) {
+    return QDir::cleanPath(QDir::fromNativeSeparators(path)).toLower();
+}
+
+class FolderFilterDialog final : public QDialog {
+public:
+    FolderFilterDialog(FunctionArea *owner, const QString &folderName)
+        : QDialog(owner), owner(owner), folderName(folderName) {
+        setWindowTitle(QString("过滤规则 - %1").arg(folderName));
+        setWindowFlag(Qt::Tool, true);
+        resize(820, 520);
+
+        QVBoxLayout *outer = new QVBoxLayout(this);
+        outer->setContentsMargins(12, 12, 12, 12);
+        outer->setSpacing(10);
+
+        QHBoxLayout *top = new QHBoxLayout();
+        QLabel *hint = new QLabel("选择左侧子文件夹，然后配置该文件夹下文件的显示规则：", this);
+        hint->setWordWrap(true);
+        top->addWidget(hint, 1);
+
+        modeCombo = new QComboBox(this);
+        modeCombo->addItem("显示全部", "all");
+        modeCombo->addItem("只显示选中", "include");
+        modeCombo->addItem("不显示选中", "exclude");
+        top->addWidget(modeCombo, 0);
+        
+        recursiveCheck = new QCheckBox("对子目录递归应用", this);
+        top->addWidget(recursiveCheck, 0);
+        outer->addLayout(top);
+
+        QSplitter *split = new QSplitter(Qt::Horizontal, this);
+        split->setHandleWidth(1);
+
+        tree = new QTreeWidget(split);
+        tree->setHeaderHidden(true);
+
+        QWidget *right = new QWidget(split);
+        QVBoxLayout *rightLayout = new QVBoxLayout(right);
+        rightLayout->setContentsMargins(0, 0, 0, 0);
+        rightLayout->setSpacing(8);
+
+        QLabel *filesLabel = new QLabel("文件列表（仅显示该目录下支持的文件类型）", right);
+        rightLayout->addWidget(filesLabel);
+
+        filesList = new QListWidget(right);
+        filesList->setSelectionMode(QAbstractItemView::NoSelection);
+        rightLayout->addWidget(filesList, 1);
+
+        QHBoxLayout *ops = new QHBoxLayout();
+        QPushButton *selectAll = new QPushButton("全选", right);
+        QPushButton *selectNone = new QPushButton("全不选", right);
+        ops->addStretch();
+        ops->addWidget(selectAll);
+        ops->addWidget(selectNone);
+        rightLayout->addLayout(ops);
+
+        split->addWidget(tree);
+        split->addWidget(right);
+        split->setStretchFactor(0, 1);
+        split->setStretchFactor(1, 2);
+        outer->addWidget(split, 1);
+
+        QDialogButtonBox *buttons =
+            new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
+        if (QAbstractButton *saveBtn = buttons->button(QDialogButtonBox::Save)) {
+            saveBtn->setText("保存");
+        }
+        if (QAbstractButton *cancelBtn = buttons->button(QDialogButtonBox::Cancel)) {
+            cancelBtn->setText("取消");
+        }
+        outer->addWidget(buttons);
+
+        connect(buttons, &QDialogButtonBox::accepted, this, &FolderFilterDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &FolderFilterDialog::reject);
+        connect(tree, &QTreeWidget::currentItemChanged, this, &FolderFilterDialog::onCurrentDirChanged);
+        connect(modeCombo, &QComboBox::currentIndexChanged, this, &FolderFilterDialog::onModeChanged);
+        connect(recursiveCheck, &QCheckBox::toggled, this, &FolderFilterDialog::onRecursiveToggled);
+        connect(selectAll, &QPushButton::clicked, this, &FolderFilterDialog::onSelectAll);
+        connect(selectNone, &QPushButton::clicked, this, &FolderFilterDialog::onSelectNone);
+
+        loadFromMetadata();
+        buildTree();
+        selectRoot();
+    }
+
+    QJsonObject resultFiltersObject() {
+        persistCurrentDirEdits();
+
+        QJsonObject result;
+        for (auto it = rules.begin(); it != rules.end(); ++it) {
+            const QString key = it.key();
+            const FolderFilterRule &rule = it.value();
+            if (rule.mode.isEmpty() || rule.mode == "all") {
+                continue;
+            }
+
+            QJsonObject obj;
+            obj["mode"] = rule.mode;
+            obj["recursive"] = rule.recursive;
+            QJsonArray arr;
+            for (const QString &f : rule.files) {
+                arr.append(f);
+            }
+            obj["files"] = arr;
+            result[key] = obj;
+        }
+        return result;
+    }
+
+protected:
+    void accept() override {
+        persistCurrentDirEdits();
+        QDialog::accept();
+    }
+
+private:
+    FunctionArea *owner;
+    QString folderName;
+    QTreeWidget *tree;
+    QComboBox *modeCombo;
+    QCheckBox *recursiveCheck;
+    QListWidget *filesList;
+
+    QString currentRelDir;
+    QString toolsDirAbs;
+    QHash<QString, FolderFilterRule> rules;
+
+    void loadFromMetadata() {
+        toolsDirAbs = QDir("tools/" + folderName).absolutePath();
+        QJsonObject metadata = owner->loadMetadataForUi(folderName);
+        QJsonObject filters = metadata["filters"].toObject();
+        for (auto it = filters.begin(); it != filters.end(); ++it) {
+            const QString key = normalizeRelDirKey(it.key());
+            const QJsonObject obj = it.value().toObject();
+            FolderFilterRule rule;
+            rule.mode = obj.value("mode").toString("all");
+            rule.recursive = obj.value("recursive").toBool(false);
+            const QJsonArray arr = obj.value("files").toArray();
+            for (const QJsonValue &v : arr) {
+                const QString name = v.toString().trimmed();
+                if (!name.isEmpty()) {
+                    rule.files.insert(name);
+                }
+            }
+            rules[key] = rule;
+        }
+    }
+
+    void buildTree() {
+        tree->clear();
+        QTreeWidgetItem *root = new QTreeWidgetItem(tree);
+        root->setText(0, "(根目录)");
+        root->setData(0, Qt::UserRole, "");
+        root->setExpanded(true);
+
+        QDir base(toolsDirAbs);
+        if (!base.exists()) {
+            return;
+        }
+
+        QHash<QString, QTreeWidgetItem*> nodeByRel;
+        nodeByRel[""] = root;
+
+        QDirIterator it(toolsDirAbs, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            const QFileInfo fi = it.fileInfo();
+            const QString rel = normalizeRelDirKey(QDir(toolsDirAbs).relativeFilePath(fi.absoluteFilePath()));
+            if (rel.isEmpty()) {
+                continue;
+            }
+
+            const int slash = rel.lastIndexOf('/');
+            const QString parentRel = slash < 0 ? "" : rel.left(slash);
+            QTreeWidgetItem *parent = nodeByRel.value(parentRel, nullptr);
+            if (!parent) {
+                parent = root;
+            }
+
+            QTreeWidgetItem *node = new QTreeWidgetItem(parent);
+            node->setText(0, fi.fileName());
+            node->setData(0, Qt::UserRole, rel);
+            nodeByRel[rel] = node;
+        }
+    }
+
+    void selectRoot() {
+        QTreeWidgetItem *root = tree->topLevelItem(0);
+        if (root) {
+            tree->setCurrentItem(root);
+        }
+    }
+
+    void persistCurrentDirEdits() {
+        if (currentRelDir.isEmpty() && !tree->currentItem()) {
+            return;
+        }
+
+        const QString mode = modeCombo->currentData().toString();
+        FolderFilterRule rule;
+        rule.mode = mode;
+        rule.recursive = recursiveCheck->isChecked();
+        for (int i = 0; i < filesList->count(); ++i) {
+            QListWidgetItem *it = filesList->item(i);
+            if (it->checkState() == Qt::Checked) {
+                rule.files.insert(it->data(Qt::UserRole).toString());
+            }
+        }
+        rules[currentRelDir] = rule;
+    }
+
+    void loadDirUi(const QString &relDir) {
+        currentRelDir = relDir;
+
+        const FolderFilterRule rule = rules.value(relDir, FolderFilterRule{ "all", QSet<QString>(), false });
+        const int idx = modeCombo->findData(rule.mode.isEmpty() ? "all" : rule.mode);
+        if (idx >= 0) {
+            modeCombo->setCurrentIndex(idx);
+        } else {
+            modeCombo->setCurrentIndex(0);
+        }
+        recursiveCheck->setChecked(rule.recursive);
+
+        filesList->clear();
+        const QString absDir = QDir(toolsDirAbs).absoluteFilePath(relDir.isEmpty() ? "." : relDir);
+        QDir dir(absDir);
+        if (!dir.exists()) {
+            return;
+        }
+
+        QStringList nameFilters;
+        for (const QString &ext : owner->supportedExtensionsForUi()) {
+            nameFilters << "*." + ext;
+        }
+        const QFileInfoList files = dir.entryInfoList(nameFilters, QDir::Files | QDir::NoSymLinks, QDir::Name);
+        for (const QFileInfo &fi : files) {
+            QListWidgetItem *item = new QListWidgetItem(fi.fileName(), filesList);
+            item->setData(Qt::UserRole, fi.fileName());
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(rule.files.contains(fi.fileName()) ? Qt::Checked : Qt::Unchecked);
+        }
+    }
+
+private slots:
+    void onCurrentDirChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous) {
+        Q_UNUSED(previous);
+        persistCurrentDirEdits();
+        if (!current) {
+            return;
+        }
+        loadDirUi(normalizeRelDirKey(current->data(0, Qt::UserRole).toString()));
+    }
+
+    void onModeChanged() {
+        persistCurrentDirEdits();
+    }
+
+    void onRecursiveToggled() {
+        persistCurrentDirEdits();
+    }
+
+    void onSelectAll() {
+        for (int i = 0; i < filesList->count(); ++i) {
+            filesList->item(i)->setCheckState(Qt::Checked);
+        }
+    }
+
+    void onSelectNone() {
+        for (int i = 0; i < filesList->count(); ++i) {
+            filesList->item(i)->setCheckState(Qt::Unchecked);
+        }
+    }
+};
+}
+
 FunctionArea::FunctionArea(QWidget *parent)
-        : QWidget(parent), currentFolderName(""), maxProcesses(10), statusBar(nullptr) {
-    // 初始化异步扫描观察者
-    watcher = new QFutureWatcher<QList<ShortcutEntry>>(this);
-    connect(watcher, &QFutureWatcher<QList<ShortcutEntry>>::finished, [this]() {
-        onScanningFinished(currentFolderName, watcher->result());
-    });
-    
+        : QWidget(parent), currentFolderName(""), statusBar(nullptr),
+          latestScanToken(0), activeScanCount(0) {
     // 初始化缓存清理定时器
     cacheCleanupTimer = new QTimer(this);
     cacheCleanupTimer->setInterval(30 * 60 * 1000); // 30分钟清理一次缓存
@@ -124,9 +414,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     // 创建快捷方式列表
     shortcuts = new QListWidget(this);
     
-    // 加载视图模式
-    loadViewMode();
-    
     shortcuts->setStyleSheet(
         "QListWidget {"
         "    background-color: transparent;"
@@ -153,15 +440,13 @@ FunctionArea::FunctionArea(QWidget *parent)
         "}");
     
     // 设置列表项布局
-    shortcuts->setIconSize(QSize(24, 24));
     shortcuts->setTextElideMode(Qt::ElideNone);
     shortcuts->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     shortcuts->setSpacing(2);
-    shortcuts->setViewMode(QListView::ListMode);
-    shortcuts->setFlow(QListView::TopToBottom);
     shortcuts->setMovement(QListView::Static);
-    shortcuts->setResizeMode(QListView::Adjust);
-    shortcuts->setWordWrap(true);
+    
+    // 加载视图模式（必须放在布局设置之后，否则会被覆盖）
+    loadViewMode();
     
     // 启用拖放功能
     shortcuts->setDragEnabled(true);
@@ -178,7 +463,6 @@ FunctionArea::FunctionArea(QWidget *parent)
     // 设置右键菜单
     shortcuts->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(shortcuts, &QListWidget::customContextMenuRequested, this, &FunctionArea::onContextMenuRequested);
-    loadViewMode();
     
     // 创建提示标签
     QLabel *hintLabel = new QLabel("双击项目启动工具", this);
@@ -356,7 +640,6 @@ QStringList FunctionArea::getFileFilters() const {
 FunctionArea::~FunctionArea() {
     // 停止定时器
     cacheCleanupTimer->stop();
-    activeProcesses.clear();
     
     // 清理 allItems 中的项目
     qDeleteAll(allItems);
@@ -369,18 +652,14 @@ bool FunctionArea::isCacheValid(const QString &folderName) const {
     if (it == folderCache.constEnd()) {
         return false;
     }
-    
-    QFileInfo dirInfo("tools/" + folderName);
-    QDateTime lastModified = dirInfo.lastModified();
-    
-    // 如果文件夹修改时间比缓存新，缓存无效
-    return lastModified <= it.value().dirLastModified;
+
+    return computeFolderContentLastModified(folderName) <= it.value().contentLastModified;
 }
 
 // 更新缓存
 void FunctionArea::updateCache(const QString &folderName, const QList<ShortcutEntry> &files) {
     FileCache cache;
-    cache.dirLastModified = QFileInfo("tools/" + folderName).lastModified();
+    cache.contentLastModified = computeFolderContentLastModified(folderName);
     cache.lastAccessedAt = QDateTime::currentDateTime();
     cache.files = files;
     folderCache[folderName] = cache;
@@ -403,33 +682,69 @@ void FunctionArea::cleanupCache() {
     }
 }
 
-// 管理进程
-void FunctionArea::manageProcesses() {
-    // 清理已结束的进程
-    cleanupProcesses();
-    
-    // 如果活动进程数超过最大值，终止最早启动的进程
-    while (activeProcesses.size() >= maxProcesses) {
-        if (!activeProcesses.isEmpty()) {
-            auto oldestProcess = activeProcesses.takeFirst();
-            if (oldestProcess && oldestProcess->state() == QProcess::Running) {
-                oldestProcess->terminate();
-            }
+QString FunctionArea::metadataKeyForFile(const QString &folderName, const QString &filePath) const {
+    QDir folderDir("tools/" + folderName);
+    return QDir::fromNativeSeparators(folderDir.relativeFilePath(filePath));
+}
+
+QString FunctionArea::legacyMetadataKeyForFile(const QFileInfo &fileInfo) const {
+    return fileInfo.fileName();
+}
+
+QDateTime FunctionArea::computeFolderContentLastModified(const QString &folderName) const {
+    QDir folderDir("tools/" + folderName);
+    QFileInfo rootInfo(folderDir.absolutePath());
+    QDateTime latestModified = rootInfo.lastModified();
+
+    if (!folderDir.exists()) {
+        return latestModified;
+    }
+
+    QDirIterator it(folderDir.absolutePath(),
+                    QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const QDateTime entryModified = it.fileInfo().lastModified();
+        if (entryModified > latestModified) {
+            latestModified = entryModified;
+        }
+    }
+
+    return latestModified;
+}
+
+QString FunctionArea::buildToolFileDialogFilter() const {
+    QStringList patterns = getFileFilters();
+    if (patterns.isEmpty()) {
+        return "所有文件 (*.*)";
+    }
+    return QString("支持的工具 (%1);;所有文件 (*.*)").arg(patterns.join(" "));
+}
+
+void FunctionArea::beginScanUiState() {
+    activeScanCount++;
+    if (activeScanCount == 1) {
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        if (statusBar) {
+            statusBar->showMessage("正在扫描工具...", 0);
         }
     }
 }
 
-// 清理已结束的进程
-void FunctionArea::cleanupProcesses() {
-    QList<QSharedPointer<QProcess>> runningProcesses;
-    
-    for (auto &process : activeProcesses) {
-        if (process && process->state() == QProcess::Running) {
-            runningProcesses.append(process);
+void FunctionArea::endScanUiState() {
+    if (activeScanCount > 0) {
+        activeScanCount--;
+    }
+
+    if (activeScanCount == 0) {
+        if (QApplication::overrideCursor()) {
+            QApplication::restoreOverrideCursor();
+        }
+        if (statusBar) {
+            statusBar->clearMessage();
         }
     }
-    
-    activeProcesses = runningProcesses;
 }
 
 // 启动进程
@@ -590,18 +905,45 @@ void FunctionArea::saveMetadata(const QString &folderName, const QJsonObject &me
     }
 }
 
-void FunctionArea::updateShortcutMetadata(const QString &folderName, const QString &fileName, const QJsonObject &data) {
+void FunctionArea::updateShortcutMetadata(const QString &folderName, const QString &filePath, const QJsonObject &data) {
     QJsonObject metadata = loadMetadata(folderName);
     QJsonObject shortcuts = metadata["shortcuts"].toObject();
-    
-    QJsonObject shortcut = shortcuts[fileName].toObject();
+
+    const QString key = metadataKeyForFile(folderName, filePath);
+    QJsonObject shortcut = shortcuts[key].toObject();
     for (auto it = data.begin(); it != data.end(); ++it) {
         shortcut[it.key()] = it.value();
     }
-    
-    shortcuts[fileName] = shortcut;
+
+    shortcuts[key] = shortcut;
     metadata["shortcuts"] = shortcuts;
     saveMetadata(folderName, metadata);
+    folderCache.remove(folderName);
+}
+
+void FunctionArea::showFolderFilterRulesDialog(const QString &folderName) {
+    FolderFilterDialog dialog(this, folderName);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QJsonObject metadata = loadMetadataForUi(folderName);
+    metadata["filters"] = dialog.resultFiltersObject();
+    saveMetadataForUi(folderName, metadata);
+    folderCache.remove(folderName);
+
+    if (currentFolderName == folderName) {
+        scanFolderForShortcuts(folderName);
+    }
+}
+
+void FunctionArea::removeShortcutMetadata(const QString &folderName, const QString &filePath) {
+    QJsonObject metadata = loadMetadata(folderName);
+    QJsonObject shortcuts = metadata["shortcuts"].toObject();
+    shortcuts.remove(metadataKeyForFile(folderName, filePath));
+    metadata["shortcuts"] = shortcuts;
+    saveMetadata(folderName, metadata);
+    folderCache.remove(folderName);
 }
 
 // 处理搜索文本变化
@@ -663,66 +1005,168 @@ void FunctionArea::clearSearch() {
 
 // 扫描文件夹获取快捷方式
 void FunctionArea::scanFolderForShortcuts(const QString &folderName) {
-    if (watcher->isRunning()) {
-        watcher->cancel();
-    }
-    
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    if (statusBar) statusBar->showMessage("正在扫描工具...", 0);
-    
-    QFuture<QList<ShortcutEntry>> future = QtConcurrent::run(&FunctionArea::scanFolderWorker, this, folderName, getFileFilters());
-    watcher->setFuture(future);
+    const qint64 scanToken = ++latestScanToken;
+    beginScanUiState();
+
+    auto *scanWatcher = new QFutureWatcher<QList<ShortcutEntry>>(this);
+    connect(scanWatcher, &QFutureWatcher<QList<ShortcutEntry>>::finished, this,
+            [this, folderName, scanToken, scanWatcher]() {
+        const QList<ShortcutEntry> files = scanWatcher->result();
+        endScanUiState();
+        scanWatcher->deleteLater();
+
+        if (scanToken != latestScanToken || folderName != currentFolderName) {
+            return;
+        }
+
+        onScanningFinished(folderName, files);
+    });
+
+    QFuture<QList<ShortcutEntry>> future =
+        QtConcurrent::run(&FunctionArea::scanFolderWorker, this, folderName, getFileFilters());
+    scanWatcher->setFuture(future);
 }
 
 QList<FunctionArea::ShortcutEntry> FunctionArea::scanFolderWorker(const QString &folderName, const QStringList &filters) {
     QDir toolsDir("tools/" + folderName);
     QJsonObject metadata = loadMetadata(folderName);
     QJsonObject shortcutsJson = metadata["shortcuts"].toObject();
+    QJsonObject filtersJson = metadata["filters"].toObject();
+    const QString toolsRoot = QDir::cleanPath(QDir::fromNativeSeparators(toolsDir.absolutePath())).toLower();
+    auto normalizePath = [](const QString &path) -> QString {
+        return QDir::cleanPath(QDir::fromNativeSeparators(path)).toLower();
+    };
 
     QList<ShortcutEntry> scannedFiles;
     
     // 首先扫描所有文件夹中的main.cfg文件
-    QMap<QString, QStringList> mainConfigFiles; 
-    QSet<QString> foldersWithMainCfg; 
+    QHash<QString, QSet<QString>> mainConfigFiles;
+    QSet<QString> foldersWithMainCfg;
     QDirIterator configIterator(toolsDir.path(), QStringList() << "main.cfg", QDir::Files, QDirIterator::Subdirectories);
     
     while (configIterator.hasNext()) {
         configIterator.next();
         QFileInfo configFileInfo = configIterator.fileInfo();
-        QString dirPath = configFileInfo.absolutePath();
-        foldersWithMainCfg.insert(dirPath);
+        const QString dirPath = configFileInfo.absolutePath();
+        const QString dirPathKey = normalizePath(dirPath);
+        foldersWithMainCfg.insert(dirPathKey);
         
         QFile configFile(configFileInfo.absoluteFilePath());
         if (configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QTextStream in(&configFile);
-            QStringList exePaths;
             while (!in.atEnd()) {
                 QString line = in.readLine().trimmed();
                 if (!line.isEmpty()) {
+                    QString absPath;
                     if (QFileInfo(line).isRelative()) {
-                        line = dirPath + "/" + line;
+                        absPath = QFileInfo(dirPath + "/" + line).absoluteFilePath();
+                    } else {
+                        absPath = QFileInfo(line).absoluteFilePath();
                     }
-                    exePaths.append(line);
+                    mainConfigFiles[dirPathKey].insert(normalizePath(absPath));
                 }
             }
             configFile.close();
-            if (!exePaths.isEmpty()) {
-                mainConfigFiles[dirPath] = exePaths;
-            }
         }
     }
+
+    QHash<QString, FolderFilterRule> filterRulesByRelDir;
+    for (auto it = filtersJson.begin(); it != filtersJson.end(); ++it) {
+        const QString relDir = normalizeRelDirKey(it.key());
+        const QJsonObject obj = it.value().toObject();
+        FolderFilterRule rule;
+        rule.mode = obj.value("mode").toString("all");
+        rule.recursive = obj.value("recursive").toBool(false);
+        const QJsonArray arr = obj.value("files").toArray();
+        for (const QJsonValue &v : arr) {
+            const QString name = v.toString().trimmed();
+            if (!name.isEmpty()) {
+                rule.files.insert(name);
+            }
+        }
+        filterRulesByRelDir[relDir] = rule;
+    }
+
+    auto parentRelDirOf = [](const QString &relDir) -> QString {
+        if (relDir.isEmpty()) {
+            return QString();
+        }
+        const int idx = relDir.lastIndexOf('/');
+        if (idx < 0) {
+            return "";
+        }
+        return relDir.left(idx);
+    };
+
+    auto findEffectiveRule = [&](const QString &relDir, bool *hasAnyRule) -> FolderFilterRule {
+        if (hasAnyRule) {
+            *hasAnyRule = false;
+        }
+
+        if (filterRulesByRelDir.contains(relDir)) {
+            if (hasAnyRule) {
+                *hasAnyRule = true;
+            }
+            return filterRulesByRelDir.value(relDir);
+        }
+
+        QString cur = parentRelDirOf(relDir);
+        while (true) {
+            if (filterRulesByRelDir.contains(cur)) {
+                const FolderFilterRule rule = filterRulesByRelDir.value(cur);
+                if (rule.recursive) {
+                    if (hasAnyRule) {
+                        *hasAnyRule = true;
+                    }
+                    return rule;
+                }
+            }
+            if (cur.isEmpty()) {
+                break;
+            }
+            cur = parentRelDirOf(cur);
+        }
+
+        return FolderFilterRule{ "all", QSet<QString>(), false };
+    };
+
+    auto hasRecursiveRuleInAncestors = [&](const QString &relDir) -> bool {
+        QString cur = relDir;
+        while (true) {
+            if (filterRulesByRelDir.contains(cur) && filterRulesByRelDir.value(cur).recursive) {
+                return true;
+            }
+            if (cur.isEmpty()) {
+                break;
+            }
+            cur = parentRelDirOf(cur);
+        }
+        return false;
+    };
     
+    QList<QFileInfo> candidateFiles;
+    QHash<QString, int> baseNameCounts;
     QDirIterator dirIterator(toolsDir.path(), filters, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    
+
     while (dirIterator.hasNext()) {
         dirIterator.next();
         QFileInfo fileInfo = dirIterator.fileInfo();
-        QString dirPath = fileInfo.absolutePath();
+        const QString dirPath = fileInfo.absolutePath();
+        const QString dirPathKey = normalizePath(dirPath);
+        const QString relDir = normalizeRelDirKey(QDir(toolsDir.absolutePath()).relativeFilePath(dirPath));
         
         bool skipDueToParentFolder = false;
-        foreach (const QString &folderWithCfg, foldersWithMainCfg) {
-            if (dirPath != folderWithCfg && dirPath.startsWith(folderWithCfg)) {
-                skipDueToParentFolder = true;
+        QString parentKey = dirPathKey;
+        while (parentKey.size() > toolsRoot.size()) {
+            const int idx = parentKey.lastIndexOf('/');
+            if (idx <= 0) {
+                break;
+            }
+            parentKey = parentKey.left(idx);
+            if (foldersWithMainCfg.contains(parentKey)) {
+                if (!hasRecursiveRuleInAncestors(relDir) && !filterRulesByRelDir.contains(relDir)) {
+                    skipDueToParentFolder = true;
+                }
                 break;
             }
         }
@@ -730,41 +1174,49 @@ QList<FunctionArea::ShortcutEntry> FunctionArea::scanFolderWorker(const QString 
         if (skipDueToParentFolder) continue;
         
         if (fileInfo.isFile() && filters.contains("*." + fileInfo.suffix().toLower())) {
-            if (mainConfigFiles.contains(dirPath)) {
-                if (!mainConfigFiles[dirPath].contains(fileInfo.absoluteFilePath())) {
-                    continue; 
+            bool hasRule = false;
+            const FolderFilterRule rule = findEffectiveRule(relDir, &hasRule);
+            if (hasRule) {
+                const QString fileName = fileInfo.fileName();
+                if (rule.mode == "include" && !rule.files.contains(fileName)) {
+                    continue;
                 }
+                if (rule.mode == "exclude" && rule.files.contains(fileName)) {
+                    continue;
+                }
+            } else if (mainConfigFiles.contains(dirPathKey) && !mainConfigFiles.value(dirPathKey).contains(normalizePath(fileInfo.absoluteFilePath()))) {
+                continue;
             }
-            
-            QString fileName = fileInfo.fileName();
-            QJsonObject itemMeta = shortcutsJson[fileName].toObject();
 
-            ShortcutEntry entry;
-            entry.filePath = fileInfo.absoluteFilePath();
-            entry.displayName = itemMeta.contains("displayName") ? itemMeta["displayName"].toString() : fileInfo.completeBaseName();
-            entry.description = itemMeta.contains("description") ? itemMeta["description"].toString() : "";
-            entry.arguments = itemMeta.contains("arguments") ? itemMeta["arguments"].toString() : "";
-            entry.runAsAdmin = itemMeta.contains("runAsAdmin") ? itemMeta["runAsAdmin"].toBool() : false;
-            entry.isFavorite = itemMeta.contains("isFavorite") ? itemMeta["isFavorite"].toBool() : false;
-            entry.doubleClickAction = itemMeta.contains("doubleClickAction") ? itemMeta["doubleClickAction"].toString() : "open";
-            entry.editorPath = itemMeta.contains("editorPath") ? itemMeta["editorPath"].toString() : "";
-            
-            scannedFiles.append(entry);
+            candidateFiles.append(fileInfo);
+            baseNameCounts[fileInfo.fileName()] += 1;
         }
     }
-    
+
+    for (const QFileInfo &fileInfo : candidateFiles) {
+        const QString metadataKey = metadataKeyForFile(folderName, fileInfo.absoluteFilePath());
+        QJsonObject itemMeta = shortcutsJson[metadataKey].toObject();
+        if (itemMeta.isEmpty() && baseNameCounts.value(fileInfo.fileName()) == 1) {
+            itemMeta = shortcutsJson[legacyMetadataKeyForFile(fileInfo)].toObject();
+        }
+
+        ShortcutEntry entry;
+        entry.filePath = fileInfo.absoluteFilePath();
+        entry.displayName = itemMeta.contains("displayName") ? itemMeta["displayName"].toString() : fileInfo.completeBaseName();
+        entry.description = itemMeta.contains("description") ? itemMeta["description"].toString() : "";
+        entry.arguments = itemMeta.contains("arguments") ? itemMeta["arguments"].toString() : "";
+        entry.runAsAdmin = itemMeta.contains("runAsAdmin") ? itemMeta["runAsAdmin"].toBool() : false;
+        entry.isFavorite = itemMeta.contains("isFavorite") ? itemMeta["isFavorite"].toBool() : false;
+        entry.doubleClickAction = itemMeta.contains("doubleClickAction") ? itemMeta["doubleClickAction"].toString() : "open";
+        entry.editorPath = itemMeta.contains("editorPath") ? itemMeta["editorPath"].toString() : "";
+
+        scannedFiles.append(entry);
+    }
+
     return scannedFiles;
 }
 
 void FunctionArea::onScanningFinished(const QString &folderName, const QList<ShortcutEntry> &files) {
-    QApplication::restoreOverrideCursor();
-    if (statusBar) statusBar->clearMessage();
-    
-    // 如果返回的文件夹名称与当前正在查看的不一致，说明用户切换了文件夹，直接返回
-    if (folderName != currentFolderName) {
-        return;
-    }
-    
     // 先清空列表，防止重复
     shortcuts->clear();
     
@@ -796,11 +1248,6 @@ void FunctionArea::onScanningFinished(const QString &folderName, const QList<Sho
 void FunctionArea::showShortcuts(const QString &folderName) {
     // 保存当前文件夹名称
     currentFolderName = folderName;
-    
-    // 如果有正在运行的扫描，先停止
-    if (watcher->isRunning()) {
-        watcher->cancel();
-    }
 
     // 清空当前快捷方式列表和存储的所有项目
     shortcuts->clear();
@@ -862,7 +1309,7 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
         connect(actionOpen, &QAction::triggered, this, [this, item, fileInfo]() {
             QJsonObject data;
             data["doubleClickAction"] = "open";
-            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            updateShortcutMetadata(currentFolderName, fileInfo.absoluteFilePath(), data);
             item->setData(Qt::UserRole + 6, "open");
         });
 
@@ -873,7 +1320,7 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
             QJsonObject data;
             data["doubleClickAction"] = "edit";
             data["editorPath"] = "";
-            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            updateShortcutMetadata(currentFolderName, fileInfo.absoluteFilePath(), data);
             item->setData(Qt::UserRole + 6, "edit");
             item->setData(Qt::UserRole + 7, "");
         });
@@ -886,7 +1333,7 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
             QJsonObject data;
             data["doubleClickAction"] = "edit";
             data["editorPath"] = currentEditor;
-            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            updateShortcutMetadata(currentFolderName, fileInfo.absoluteFilePath(), data);
             item->setData(Qt::UserRole + 6, "edit");
             item->setData(Qt::UserRole + 7, currentEditor);
         });
@@ -900,7 +1347,7 @@ void FunctionArea::onContextMenuRequested(const QPoint &pos) {
             QJsonObject data;
             data["doubleClickAction"] = "edit";
             data["editorPath"] = editorPath;
-            updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+            updateShortcutMetadata(currentFolderName, fileInfo.absoluteFilePath(), data);
             item->setData(Qt::UserRole + 6, "edit");
             item->setData(Qt::UserRole + 7, editorPath);
         });
@@ -984,7 +1431,7 @@ void FunctionArea::onEditArguments() {
         QString newArgs = lineEdit->text();
         QJsonObject data;
         data["arguments"] = newArgs;
-        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+        updateShortcutMetadata(currentFolderName, filePath, data);
         item->setData(Qt::UserRole + 3, newArgs);
     }
 }
@@ -1000,7 +1447,7 @@ void FunctionArea::onToggleAdmin() {
     
     QJsonObject data;
     data["runAsAdmin"] = newAdmin;
-    updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+    updateShortcutMetadata(currentFolderName, filePath, data);
     item->setData(Qt::UserRole + 4, newAdmin);
     
     // 如果是以管理员身份运行，可以在名称后面加个小标记或者改下颜色
@@ -1013,8 +1460,8 @@ void FunctionArea::onAddTool() {
         return;
     }
     
-    QString filePath = QFileDialog::getOpenFileName(this, "选择要添加的工具", "", 
-                                                   "可执行文件 (*.exe *.cmd *.bat);;所有文件 (*.*)");
+    QString filePath = QFileDialog::getOpenFileName(this, "选择要添加的工具", "",
+                                                   buildToolFileDialogFilter());
     if (filePath.isEmpty()) return;
     
     QFileInfo fileInfo(filePath);
@@ -1064,12 +1511,7 @@ void FunctionArea::onDeleteTool() {
     
     if (msgBox.clickedButton() == deleteButton) {
         if (QFile::remove(filePath)) {
-            // 从元数据中移除
-            QJsonObject metadata = loadMetadata(currentFolderName);
-            QJsonObject shortcutsJson = metadata["shortcuts"].toObject();
-            shortcutsJson.remove(fileInfo.fileName());
-            metadata["shortcuts"] = shortcutsJson;
-            saveMetadata(currentFolderName, metadata);
+            removeShortcutMetadata(currentFolderName, filePath);
             
             // 刷新列表
             scanFolderForShortcuts(currentFolderName);
@@ -1142,7 +1584,7 @@ void FunctionArea::onRenameShortcut() {
         // 更新元数据
         QJsonObject data;
         data["displayName"] = newName;
-        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+        updateShortcutMetadata(currentFolderName, filePath, data);
         
         // 更新列表项
         item->setData(Qt::UserRole + 2, newName);
@@ -1204,7 +1646,7 @@ void FunctionArea::onEditDescription() {
         // 更新元数据
         QJsonObject data;
         data["description"] = newDescription;
-        updateShortcutMetadata(currentFolderName, fileInfo.fileName(), data);
+        updateShortcutMetadata(currentFolderName, filePath, data);
         
         // 更新列表项
         item->setToolTip(newDescription.isEmpty() ? filePath : newDescription);
@@ -1411,11 +1853,13 @@ void FunctionArea::onShortcutDoubleClicked(QListWidgetItem *item) {
         // 在 Windows 上使用 ShellExecuteEx 以管理员身份启动
         std::wstring wExePath = exeFilePath.toStdWString();
         std::wstring wArgs = argumentsStr.toStdWString();
+        std::wstring wDir = fileInfo.absolutePath().toStdWString();
 
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
         sei.lpVerb = L"runas";
         sei.lpFile = wExePath.c_str();
         sei.lpParameters = wArgs.empty() ? nullptr : wArgs.c_str();
+        sei.lpDirectory = wDir.c_str();
         sei.nShow = SW_SHOWNORMAL;
 
         if (!ShellExecuteExW(&sei)) {
